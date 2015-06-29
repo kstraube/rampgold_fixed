@@ -1,0 +1,18 @@
+#include "kernel.h"
+
+SECTIONS
+{
+  . = 0x00000000;
+  .ttext : { TRAP_TABLE_OBJECT (.text) }
+
+  . = KERNEL_VIRTUAL_START;
+
+  .magic_mem : { ../build/obj/ProxyKernel/magic_mem.o (.data) }
+  .text : { *(.text) }
+  .data : { *(.data) }
+  .bss : { *(.bss) }
+
+  _end = .;
+}
+
+ENTRY(bootstrap);

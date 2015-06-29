@@ -1,0 +1,72 @@
+# General Purpose configuration parameters
+#CFLAGS += $(CONFIG_APPSERVER)
+
+# Kernel configuration parameters
+#KERN_CFLAGS += $(CONFIG_KFS)
+#KERN_CFLAGS += $(CONFIG_EXT2FS)
+#KERN_CFLAGS += $(CONFIG_DEDICATED_MONITOR)
+#KERN_CFLAGS += $(CONFIG_SINGLE_CORE)
+#KERN_CFLAGS += $(CONFIG_NETWORKING)
+#KERN_CFLAGS += $(CONFIG_SERIAL_IO)
+#KERN_CFLAGS += $(CONFIG_BSD_ON_CORE0)
+# Enabling this can cause userspace to make the kernel panic.
+#KERN_CFLAGS += $(CONFIG_SEQLOCK_DEBUG)
+#KERN_CFLAGS += $(CONFIG_SPINLOCK_DEBUG)
+#KERN_CFLAGS += $(CONFIG_PAGE_COLORING)
+#KERN_CFLAGS += $(CONFIG_DEMAND_PAGING)
+#KERN_CFLAGS += $(CONFIG_NOMTRRS)
+#KERN_CFLAGS += $(CONFIG_E1000_MMIO_HACK)
+#KERN_CFLAGS += $(CONFIG_E1000_ON_BOXBORO)
+#KERN_CFLAGS += $(CONFIG_E1000_ON_S142)
+#KERN_CFLAGS += $(CONFIG_ENABLE_MPTABLES)
+#KERN_CFLAGS += $(CONFIG_MONITOR_ON_INT)
+#KERN_CFLAGS += $(CONFIG_DISABLE_SMT)
+#KERN_CFLAGS += $(CONFIG_BOXBORO)
+# Enable this to set up ARSC server
+#KERN_CFLAGS += $(CONFIG_ARSC_SERVER)
+# Resets stacks in smp_idle(), at the expense of backtrace
+#KERN_CFLAGS += $(CONFIG_RESET_STACKS)
+#KERN_CFLAGS += $(CONFIG_PCI_VERBOSE)
+# Rimas's Ethernet audio device
+#KERN_CFLAGS += $(CONFIG_ETH_AUDIO)
+
+#KERN_CFLAGS += -DDEVELOPER_NAME=waterman
+#KERN_CFLAGS += -DDEVELOPER_NAME=brho
+
+
+# Paths for the initramfs (need to be directories)
+#INITRAMFS_PATHS = kern/kfs obj/tests
+# Program to execute before building the initramfs
+#INITRAMFS_BIN = tools/whatever.sh
+# Image for ext2 (RAM version) (only brho uses this )
+#EXT2_BDEV = mnt/ext2fs.img
+
+# Userspace configuration parameters
+#USER_CFLAGS += $(CONFIG_SYSCALL_TRAP)
+#USER_CFLAGS += $(CONFIG_USER_DEBUGINFO)
+
+# User tests configuration parameters
+#TESTS_CFLAGS += $(CONFIG_STATIC_APPS)
+
+# Default for sparc (i.e. needs an appserver)
+ifeq ($(TARGET_ARCH),sparc)
+KERN_CFLAGS += $(CONFIG_APPSERVER)
+KERN_CFLAGS += -DDEVELOPER_NAME=waterman
+endif
+
+x86:
+	$(MAKE) TARGET_ARCH=i686
+
+ramp:
+	$(MAKE) TARGET_ARCH=sparc
+
+# various sparc functional simulator configurations
+NP ?= 1
+fs: all
+	sparc_app -p$(NP) -fappserver_ros.conf fs obj/kern/kernel none
+fsd: all
+	sparc_app_debug -p$(NP) -fappserver_ros.conf fs obj/kern/kernel none
+hw: all
+	sparc_app -p$(NP) -fappserver_ros.conf hw obj/kern/kernel none
+
+.PHONY: fs fsd hw

@@ -1,0 +1,34 @@
+This package contains the cross-compiler for RAMP Gold, sparc-ros-gcc.  This
+README file provides instructions on how to build and install sparc-ros-gcc.
+
+This package has only been tested on CentOS 5 and Ubuntu 9.04. It is otherwise
+unsupported.  On Ubuntu, it is necessary to install gawk before proceeding.
+mawk is installed by default, and it will cause the build to fail.
+
+To install sparc-ros-gcc:
+
+1) cd tools/compilers/gcc-glibc
+
+2) Edit Makelocal to set RAMP_INSTDIR to a suitable install location, not
+   inside this source tree.
+
+3) Add RAMP_INSTDIR/bin to your PATH.
+
+4) Type "make ramp".
+
+Make sure the compiler can correctly generate executables by creating a
+simple C program and compiling it:
+
+cat > helloworld.c <<'END'
+ #include <stdio.h>
+ int main() {
+   puts("Hello, world!");
+   return 0;
+ }
+END
+
+sparc-ros-gcc -static -o helloworld -O2 helloworld.c
+
+If the compiler executes without error, it is correctly installed.  Note
+that it is necessary to use the -static flag; we do not support dynamic
+linking.

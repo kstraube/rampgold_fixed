@@ -1,0 +1,9 @@
+# Output products list for <ml505_icon>
+ml505_icon.asy
+ml505_icon.ncf
+ml505_icon.ngc
+ml505_icon.v
+ml505_icon.veo
+ml505_icon.xco
+ml505_icon_flist.txt
+ml505_icon_xmdf.tcl

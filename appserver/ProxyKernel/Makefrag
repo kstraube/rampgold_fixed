@@ -1,0 +1,83 @@
+PK_SRC_DIR := $(BUILD_DIR)/../ProxyKernel
+PK_OBJ_DIR := $(BUILD_DIR)/obj/ProxyKernel
+
+PK_DEPS := $(PK_OBJ_DIR)/magic_mem.o
+PK_COMMON_OBJS := kernel_trap.o kernel.o trap.o bootstrap.o syscall.o spillfill.o fpu.o recip.o stdlib.o syscall_minimal.o
+PK_OBJS := $(PK_COMMON_OBJS) timer.o nommu.o
+PK_STATS_OBJS := $(PK_COMMON_OBJS) stats.o nommu.o notimer.o
+PK_SMALL_OBJS := kernel_trap.o kernel.small.o bootstrap.o syscall.small.o syscall_minimal.o spillfill.o fpu.small.o stdlib.small.o nommu.o notimer.o recip.o
+PK_BOOTLOADER_OBJS := bootloader.o bootloader_romvec.o syscall_minimal.o magic_mem.o stdlib.o
+PK_LIBPTHREAD_OBJS := hart.o pthread_hart.o
+PK_INSTALL_HEADERS := hart.h
+PK_RAMP_INSTALL_HEADERS := # hart.h pthread.h
+
+PK_PROGRAMS := $(RAMP_BIN_DIR)/kernel.ramp $(RAMP_BIN_DIR)/kernel.small $(RAMP_BIN_DIR)/bootloader $(RAMP_BIN_DIR)/bootloader $(RAMP_BIN_DIR)/kernel.stats $(RAMP_LIB_DIR)/libhart.a $(RAMP_INCLUDE_DIR)/hart.h
+proxykernel-sparc: $(PK_PROGRAMS)
+proxykernel-host: $(LIB_DIR)/libhart.a $(INCLUDE_DIR)/hart.h common-host
+
+PK_OBJS := $(patsubst %.o,$(PK_OBJ_DIR)/%.o,$(PK_OBJS))
+PK_STATS_OBJS := $(patsubst %.o,$(PK_OBJ_DIR)/%.o,$(PK_STATS_OBJS))
+PK_SMALL_OBJS := $(patsubst %.o,$(PK_OBJ_DIR)/%.o,$(PK_SMALL_OBJS))
+PK_LIBPTHREAD_OBJS := $(patsubst %.o,$(PK_OBJ_DIR)/%.o,$(PK_LIBPTHREAD_OBJS))
+PK_BOOTLOADER_OBJS := $(patsubst %.o,$(PK_OBJ_DIR)/%.o,$(PK_BOOTLOADER_OBJS))
+PROXKERNEL_LIBPTHREAD_OBJS := $(patsubst %.o,$(PK_OBJ_DIR)/%.o,$(PROXKERNEL_LIBPTHREAD_OBJS))
+PK_RAMP_INSTALL_HEADERS := $(patsubst %.h,$(RAMP_INCLUDE_DIR)/%.h,$(PK_RAMP_INSTALL_HEADERS))
+PK_INSTALL_HEADERS := $(patsubst %.h,$(INCLUDE_DIR)/%.h,$(PK_INSTALL_HEADERS))
+
+$(RAMP_LIB_DIR)/libpthread.a: $(PK_LIBPTHREAD_OBJS) $(PK_RAMP_INSTALL_HEADERS)
+	@mkdir -p $(RAMP_LIB_DIR)
+	ar rcs $@ $(PK_LIBPTHREAD_OBJS)
+
+$(LIB_DIR)/libhart.a: $(PK_OBJ_DIR)/hart_pthread.host.o $(PK_INSTALL_HEADERS)
+	@mkdir -p $(LIB_DIR)
+	ar rcs $@ $<
+
+$(RAMP_LIB_DIR)/libhart.a: $(PK_OBJ_DIR)/hart.o $(PK_INSTALL_HEADERS)
+	@mkdir -p $(LIB_DIR)
+	ar rcs $@ $<
+
+$(RAMP_BIN_DIR)/bootloader: $(PK_SRC_DIR)/bootloader.lds $(PK_BOOTLOADER_OBJS)
+	@mkdir -p $(RAMP_BIN_DIR)
+	$(RAMP_LD) -T $(PK_SRC_DIR)/bootloader.lds $(PK_BOOTLOADER_OBJS) $(RAMP_LDFLAGS) -o $@
+
+$(RAMP_BIN_DIR)/kernel.ramp: $(PK_SRC_DIR)/link.tmp $(PK_OBJS) $(RAMP_LIB_DIR)/libcommon-kernel.a
+	@mkdir -p $(RAMP_BIN_DIR)
+	$(RAMP_LD) -T $(PK_SRC_DIR)/link.tmp $(PK_OBJS) $(RAMP_LDFLAGS) -lcommon-kernel -lgcc -o $@
+
+$(RAMP_BIN_DIR)/kernel.stats: $(PK_SRC_DIR)/link.tmp $(PK_STATS_OBJS) $(RAMP_LIB_DIR)/libcommon-kernel.a
+	@mkdir -p $(RAMP_BIN_DIR)
+	$(RAMP_LD) -T $(PK_SRC_DIR)/link.tmp $(PK_STATS_OBJS) $(RAMP_LDFLAGS) -lcommon-kernel -lgcc -o $@
+
+$(RAMP_BIN_DIR)/kernel.small: $(PK_SRC_DIR)/link.tmp $(PK_SMALL_OBJS) $(COMMON_OBJ_DIR)/itoa.ramp.o
+	@mkdir -p $(RAMP_BIN_DIR)
+	$(RAMP_LD) -T $(PK_SRC_DIR)/link.tmp $(PK_SMALL_OBJS) $(COMMON_OBJ_DIR)/itoa.ramp.o $(RAMP_LDFLAGS) -lgcc -o $@
+
+$(PK_SRC_DIR)/link.tmp: $(PK_SRC_DIR)/link.scr $(FUNCTIONAL_SRC_DIR)/*.h $(COMMON_RAMP_INSTALL_HEADERS) $(PK_DEPS)
+	$(RAMP_CC) $(RAMP_CFLAGS) -DTRAP_TABLE_OBJECT=$(PK_OBJ_DIR)/trap.o -E -x assembler-with-cpp -o $@.2 $(PK_SRC_DIR)/link.scr
+	grep -v \# $@.2 > $@
+	rm $@.2
+
+$(PK_OBJ_DIR)/%.o: $(PK_SRC_DIR)/%.s $(FUNCTIONAL_SRC_DIR)/targetconfig.h $(PK_SRC_DIR)/*.h $(COMMON_RAMP_INSTALL_HEADERS)
+	@mkdir -p $(PK_OBJ_DIR)
+	$(RAMP_CC) $(RAMP_CFLAGS) -c -x assembler-with-cpp $< -o $@
+
+$(PK_OBJ_DIR)/%.o: $(PK_SRC_DIR)/%.c $(FUNCTIONAL_SRC_DIR)/targetconfig.h $(PK_SRC_DIR)/*.h $(TESTAPPSERVER_SRC_DIR)/perfctr.h $(RAMP_INCLUDE_DIR)/specialregs.h $(RAMP_INCLUDE_DIR)/host.h $(FUNCTIONAL_SPECIAL_HEADERS) $(COMMON_RAMP_INSTALL_HEADERS)
+	@mkdir -p $(PK_OBJ_DIR)
+	$(RAMP_CC) $(RAMP_CFLAGS) -c $< -o $@
+
+$(PK_OBJ_DIR)/%.small.o: $(PK_SRC_DIR)/%.c $(FUNCTIONAL_SRC_DIR)/targetconfig.h $(PK_SRC_DIR)/*.h $(COMMON_RAMP_INSTALL_HEADERS)
+	@mkdir -p $(PK_OBJ_DIR)
+	$(RAMP_CC) $(RAMP_CFLAGS) -DSMALL_MEM -c $< -o $@
+
+$(PK_OBJ_DIR)/%.host.o: $(PK_SRC_DIR)/%.c $(PK_SRC_DIR)/*.h $(INCLUDE_DIR)/host.h $(COMMON_INSTALL_HEADERS)
+	@mkdir -p $(PK_OBJ_DIR)
+	$(CC) $(CFLAGS) -o $@ -c $<
+
+$(INCLUDE_DIR)/%.h: $(PK_SRC_DIR)/%.h
+	cp $< $@
+
+$(RAMP_INCLUDE_DIR)/%.h: $(PK_SRC_DIR)/%.h
+	cp $< $@
+
+proxykernel-clean:
+	-rm -f $(PK_SRC_DIR)/*.tmp* $(PK_PROGRAMS) $(LIB_DIR)/libhart.a $(PK_INSTALL_HEADERS) $(PK_RAMP_INSTALL_HEADERS) $(RAMP_BIN_DIR)/bootloader

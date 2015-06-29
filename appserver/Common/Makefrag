@@ -1,0 +1,73 @@
+COMMON_SRC_DIR := $(BUILD_DIR)/../Common
+COMMON_OBJ_DIR := $(BUILD_DIR)/obj/Common
+
+COMMON_OBJS := itoa.o util.o elf.o softfloat.o sparcfpu.o memif.o properties.o
+COMMON_RAMP_OBJS := itoa.ramp.o util.ramp.o sparcfpu.ramp.o softfloat.ramp.o divsqrt.ramp.o
+COMMON_PK_OBJS := itoa.ramp.o sparcfpu.ramp.o softfloat.ramp.o
+COMMON_INSTALL_HEADERS := util.h host.h barrier.h specialregs.h itoa.h syscall.h
+
+COMMON_DEBUG_OBJS := $(patsubst %.o,$(COMMON_OBJ_DIR)/%.d.o,$(COMMON_OBJS))
+COMMON_OBJS := $(patsubst %.o,$(COMMON_OBJ_DIR)/%.o,$(COMMON_OBJS))
+COMMON_RAMP_OBJS := $(patsubst %.o,$(COMMON_OBJ_DIR)/%.o,$(COMMON_RAMP_OBJS))
+COMMON_PK_OBJS := $(patsubst %.o,$(COMMON_OBJ_DIR)/%.o,$(COMMON_PK_OBJS))
+COMMON_RAMP_INSTALL_HEADERS := $(patsubst %.h,$(RAMP_INCLUDE_DIR)/%.h,$(COMMON_INSTALL_HEADERS))
+COMMON_INSTALL_HEADERS := $(patsubst %.h,$(INCLUDE_DIR)/%.h,$(COMMON_INSTALL_HEADERS))
+
+common-host: $(LIB_DIR)/libcommon.a $(LIB_DIR)/libcommon-debug.a $(COMMON_INSTALL_HEADERS) $(BIN_DIR)/bin2hex $(BIN_DIR)/ptgen
+common-sparc: $(RAMP_LIB_DIR)/libcommon.a $(COMMON_RAMP_INSTALL_HEADERS) $(RAMP_LIB_DIR)/libcommon-kernel.a
+
+$(BIN_DIR)/bin2hex: $(COMMON_OBJ_DIR)/bin2hex.o $(LIB_DIR)/libcommon.a
+	$(CXX) $(CXXFLAGS) -o $@ $< $(LDFLAGS) -lcommon
+
+$(BIN_DIR)/ptgen: $(COMMON_OBJ_DIR)/ptgen.o $(LIB_DIR)/libcommon.a $(COMMON_SRC_DIR)/../ProxyKernel/kernel.h
+	$(CXX) $(CXXFLAGS) -o $@ $< $(LDFLAGS) -lcommon
+
+$(LIB_DIR)/libcommon.a: $(COMMON_OBJS)
+	@mkdir -p $(LIB_DIR)
+	ar rcs $@ $(COMMON_OBJS)
+
+$(LIB_DIR)/libcommon-debug.a: $(COMMON_DEBUG_OBJS)
+	@mkdir -p $(LIB_DIR)
+	ar rcs $@ $(COMMON_DEBUG_OBJS)
+
+$(RAMP_LIB_DIR)/libcommon.a: $(COMMON_RAMP_OBJS)
+	@mkdir -p $(RAMP_LIB_DIR)
+	ar rcs $@ $(COMMON_RAMP_OBJS)
+
+$(RAMP_LIB_DIR)/libcommon-kernel.a: $(COMMON_PK_OBJS)
+	@mkdir -p $(RAMP_LIB_DIR)
+	ar rcs $@ $(COMMON_PK_OBJS)
+
+$(COMMON_OBJ_DIR)/%.o: $(COMMON_SRC_DIR)/%.cpp \
+                       $(COMMON_SRC_DIR)/*.h
+	@mkdir -p $(COMMON_OBJ_DIR)
+	$(CXX) $(CFLAGS) -o $@ -c $<
+
+$(COMMON_OBJ_DIR)/%.d.o: $(COMMON_SRC_DIR)/%.cpp \
+                         $(COMMON_SRC_DIR)/*.h
+	@mkdir -p $(COMMON_OBJ_DIR)
+	$(CXX) $(CFLAGS) -DDEBUG_MODE -o $@ -c $<
+
+$(COMMON_OBJ_DIR)/%.o: $(COMMON_SRC_DIR)/%.c \
+                       $(COMMON_SRC_DIR)/*.h
+	@mkdir -p $(COMMON_OBJ_DIR)
+	$(CC) $(CFLAGS) -o $@ -c $<
+
+$(COMMON_OBJ_DIR)/%.d.o: $(COMMON_SRC_DIR)/%.c \
+                         $(COMMON_SRC_DIR)/*.h
+	@mkdir -p $(COMMON_OBJ_DIR)
+	$(CC) $(CFLAGS) -DDEBUG_MODE -o $@ -c $<
+
+$(COMMON_OBJ_DIR)/%.ramp.o: $(COMMON_SRC_DIR)/%.c \
+                       $(COMMON_SRC_DIR)/*.h
+	@mkdir -p $(COMMON_OBJ_DIR)
+	$(RAMP_CC) $(RAMP_CFLAGS) -o $@ -c $<
+
+$(INCLUDE_DIR)/%.h: $(COMMON_SRC_DIR)/%.h
+	cp $< $@
+
+$(RAMP_INCLUDE_DIR)/%.h: $(COMMON_SRC_DIR)/%.h
+	cp $< $@
+
+common-clean:
+	-rm -rf $(LIB_DIR)/libcommon.a $(LIB_DIR)/libcommon-debug.a $(RAMP_LIB_DIR)/libcommon.a $(RAMP_LIB_DIR)/libcommon-kernel.a $(COMMON_INSTALL_HEADERS) $(COMMON_RAMP_INSTALL_HEADERS) $(BIN_DIR)/bin2hex $(BIN_DIR)/ptgen

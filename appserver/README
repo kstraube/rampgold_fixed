@@ -1,0 +1,135 @@
+This package contains RAMP Gold's Application Server, Proxy Kernel, and
+Functional Simulator.  This README describes their functions and how to build
+and run them.
+
+The AppServer launches a program into RAMP Gold.  Since the RAMP Gold hardware
+lacks a console and disk, all I/O system calls are forwarded to the AppServer
+for local processing.
+
+The ProxyKernel is a SPARC program that runs on RAMP Gold.  It acts as the
+operating system seen by a user program running on RAMP Gold.  Part of
+the ProxyKernel's job is to forward I/O calls to the AppServer.
+
+The Functional Simulator is a C-based SPARC ISA simulator.  It can be used
+to run and debug programs that will run on RAMP Gold without using the FPGA
+hardware.
+
+
+
+Building the AppServer
+----------------------
+
+To build all of these packages, you need to have sudo privileges.  You also
+need to have built and installed the cross-compiler, sparc-ros-gcc, which is
+provided in a separate package.  Then, follow these instructions:
+
+1) cd build/
+2) type "make"
+3) add build/bin and build/rampbin to your PATH
+
+Now, try running a program on the Functional Simulator using the Proxy Kernel
+and App Server.  The following commands will build and run a simple
+Hello World program:
+
+cat > helloworld.c <<'END'
+ #include <stdio.h>
+ int main() {
+   puts("Hello, world!");
+   return 0;
+ }
+END
+
+sparc-ros-gcc -static -o helloworld -O2 helloworld.c
+
+sparc_app fs kernel.ramp helloworld
+
+If the installation was successful, theen "Hello, world!" should have been
+printed on the console.
+
+
+
+AppServer Usage Notes
+---------------------
+
+To obtain performance counter data from the simulator, use the -s flag to the
+appserver.  To run with multiple cores, use the -p flag.  For example, to
+get stats and run a 64-core simulation, use the following command:
+
+sparc_app -s -p64 fs kernel.ramp helloworld
+
+"fs" denotes Functional Simulator.  To instead run with the RAMP Gold hardware,
+use "hw" instead.
+
+
+Details on the Proxy Kernel
+---------------------------
+
+The Proxy Kernel's primary function is to provide the supervisor-mode support
+necessary to run C programs.  It services system calls itself where possible
+(for example, when calling mmap() to allocate memory), or forwards them to
+the AppServer otherwise (for example, when performing console or file I/O).
+
+Adding a system call is straightforward.  ProxyKernel/syscall.c contains the
+implementation of all system calls (they are functions that begin with sys_),
+and the dispatch table resides in handle_syscall() in the same file.  The
+system call numbers (which begin with SYS_) live in the cross-compiler package
+in kern/include/ros/syscall.h.
+
+Trap handlers, including interrupt service routines, can be added by augmenting
+the appropriate entry in the trap table (ProxyKernel/trap.s) with a call to
+your routine.  Simple routines that run with interrupts disabled can be
+invoked with a JMP() macro (cf. handle_active_message), and more complex
+trap handlers that are written in C can be invoked with a TRAP_TABLE_ENTRY()
+macro (cf. handle_syscall).
+
+
+Running a Multi-Core Workload
+-----------------------------
+
+We expose a simple API for running a program on multiple cores called harts
+(a contraction of hard-threads).  One hart corresponds to one actively-running
+thread on a processor core.
+
+The API consists of basic synchronization primitives (locks and barriers)
+and a mechanism for requesting or yielding harts (hart_request and hart_yield).
+Look at ProxyKernel/hart.h to see a list of functions in the API.
+
+Below is a simple program, multi-hello.c, which prints a message from each
+core on which it runs.  Use the following command to compile it, making sure
+to set the -I and -L paths to point to the build/rampinclude and build/ramplib
+directories, respectively:
+
+sparc-ros-gcc -static -Iappserver/build/rampinclude -o multi-hello -O2 multi-hello.c -Lappserver/build/ramplib -lhart
+
+Then run it with this command, and you should see 64 messages:
+
+sparc_app -p64 fs kernel.ramp multi-hello
+
+
+#include <hart.h>
+#include <stdio.h>
+
+hart_barrier_t barrier;
+
+void do_work(int thread_id)
+{
+  printf("Hello from thread %d!\n",thread_id);
+
+  hart_barrier_wait(&barrier, thread_id);
+}
+
+void hart_entry() // this is where the requested harts enter the program
+{
+  do_work(hart_self()); // do this thread's share of the work
+}
+
+int main()
+{
+  hart_barrier_init(&barrier,hart_max_harts()); // initialize a barrier
+
+  hart_request(hart_max_harts()-1); // request the other N-1 threads
+
+  do_work(0); // do thread 0's part of the work
+  
+  return 0;
+}

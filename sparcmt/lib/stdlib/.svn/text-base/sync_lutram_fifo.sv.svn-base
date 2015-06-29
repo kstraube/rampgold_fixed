@@ -1,0 +1,74 @@
+//------------------------------------------------------------------------------   
+// File:        sync_lutram_fifo.sv
+// Author:      Zhangxi Tan
+// Description: Synchronize LUTRAM fifo implemenation. 
+//------------------------------------------------------------------------------  
+`timescale 1ns / 1ps
+
+`ifndef SYNP94
+import libstd::*;
+`else
+`include "libstd.sv"
+`endif
+
+
+module sync_lutram_fifo #(parameter DWIDTH=1, parameter DEPTH=64, parameter bit DOREG=1)(input bit clk,
+                                             input  bit rst,
+                                             input  bit [DWIDTH-1:0] din,
+                                             input  bit we,
+                                             input  bit re,
+                                             output bit	empty,
+                                             output bit full,
+                                             output bit [DWIDTH-1:0] dout);
+                                             
+   (* syn_ramstyle = "select_ram" *)	bit [DWIDTH-1:0]	 fifo_ram[0:DEPTH-1];
+   
+   bit [DWIDTH-1:0] ram_dout, r_dout;
+                                           
+   (* syn_maxfan = 16 *) bit [log2x(DEPTH)-1:0] head, tail, nhead, ntail;
+                                           
+                                           
+    assign nhead = head + 1;
+    assign ntail = tail + 1;
+    
+    always_ff @(posedge clk) begin		
+      if (rst) begin
+         tail <= '0;
+         head <= '0;
+      end
+      else begin
+         tail <= (we) ? ntail : tail;
+         head <= (re) ? nhead : head;
+      end
+    end 
+                                           
+    always_comb begin
+     ram_dout = fifo_ram[head]; 
+     
+     dout = (DOREG) ? r_dout : ram_dout; 
+    end
+                                           
+    //RAMs
+    always_ff @(posedge clk) begin		
+     //RAMs
+     if (we) fifo_ram[tail] <= din;
+    end
+                                             
+    always_ff @(posedge clk) begin  //output register		
+      if (rst) begin
+       empty <= '1;
+       full <= '0;
+      end
+      else begin
+       unique case({we, re})
+       2'b10 : begin empty <= '0; full <= (head == ntail); end
+       2'b01 : begin empty <= (nhead == tail); full <= '0; end
+       default : empty <= empty;
+       endcase
+      end  		  
+      
+      if (DOREG)                                     
+        r_dout <= ram_dout;                                               
+    end                                                                                   
+                                             
+endmodule

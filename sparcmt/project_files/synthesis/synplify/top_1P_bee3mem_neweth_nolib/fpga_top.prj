@@ -1,0 +1,179 @@
+#-- Synopsys, Inc.
+#-- Version E-2010.09-1
+#-- Project file /home/xtan/work/Gold/Hardware/Processor/sparcmt/project_files/synthesis/synplify/top_1P_bee3mem_neweth_nolib/fpga_top.prj
+
+#project folders
+add_folder fpu  
+add_folder bee3mem  
+add_folder eth  
+add_folder io  
+add_folder mmu  
+add_folder clkgen  
+add_folder tm  
+
+#project files
+add_file -verilog -vlog_std sysv "../../../../lib/cpu/microcode.sv"
+add_file -verilog -vlog_std sysv "../../../../lib/tech/xilinx/tech_xilinx.sv"
+add_file -verilog -vlog_std sysv -folder clkgen "../../../../lib/tech/xilinx/virtex5/clkgen.sv"
+add_file -verilog -vlog_std sysv "../../../../lib/tech/xilinx/virtex5/alulogic.sv"
+add_file -verilog -vlog_std sysv "../../../../lib/tech/xilinx/virtex5/alumul.sv"
+add_file -verilog -vlog_std sysv "../../../../lib/tech/xilinx/virtex5/dcacheram.sv"
+add_file -verilog -vlog_std sysv "../../../../lib/tech/xilinx/virtex5/icacheram.sv"
+add_file -verilog -vlog_std sysv "../../../../lib/tech/xilinx/virtex5/aludiv.sv"
+add_file -verilog -vlog_std sysv -folder clkgen "../../../../lib/tech/xilinx/virtex5/dram_clkgen.sv"
+add_file -verilog -folder bee3mem "../../../../lib/tech/xilinx/virtex5/bee3sodimm/dpram.v"
+add_file -verilog -vlog_std sysv -folder bee3mem "../../../../lib/tech/xilinx/virtex5/bee3sodimm/dpbram.v"
+add_file -verilog -folder bee3mem "../../../../lib/tech/xilinx/virtex5/bee3sodimm/AF.v"
+add_file -verilog -folder bee3mem "../../../../lib/tech/xilinx/virtex5/bee3sodimm/camx.v"
+add_file -verilog -folder bee3mem "../../../../lib/tech/xilinx/virtex5/bee3sodimm/ddrBank.v"
+add_file -verilog -folder bee3mem "../../../../lib/tech/xilinx/virtex5/bee3sodimm/ddrController.v"
+add_file -verilog -folder bee3mem "../../../../lib/tech/xilinx/virtex5/bee3sodimm/dq_iob.v"
+add_file -verilog -folder bee3mem "../../../../lib/tech/xilinx/virtex5/bee3sodimm/dqs_iob.v"
+add_file -verilog -folder bee3mem "../../../../lib/tech/xilinx/virtex5/bee3sodimm/rs232rcv.v"
+add_file -verilog -folder bee3mem "../../../../lib/tech/xilinx/virtex5/bee3sodimm/TC5.v"
+add_file -verilog -folder bee3mem "../../../../lib/tech/xilinx/virtex5/bee3sodimm/WB.v"
+add_file -verilog -folder bee3mem "../../../../lib/tech/xilinx/virtex5/bee3sodimm/RB.v"
+add_file -verilog -vlog_std sysv "../../../../lib/tech/techmap.sv"
+add_file -verilog -vlog_std sysv "../../../../lib/mem/dramif.sv"
+add_file -verilog -vlog_std sysv -folder bee3mem "../../../../lib/tech/xilinx/virtex5/dramctrl_bee3.sv"
+add_file -verilog -vlog_std sysv "../../../../lib/cpu/xalu.sv"
+add_file -verilog -vlog_std sysv "../../../../lib/cpu/alu.sv"
+add_file -verilog -vlog_std sysv -folder clkgen "../../../../lib/cpu/clkrst_gen.sv"
+add_file -verilog -vlog_std sysv "../../../../lib/cpu/udcache_nb_mmu.sv"
+add_file -verilog -vlog_std sysv "../../../../lib/cpu/decode.sv"
+add_file -verilog -vlog_std sysv -folder mmu "../../../../lib/cpu/mmureg.sv"
+add_file -verilog -vlog_std sysv -folder mmu "../../../../lib/cpu/dtlb_2way_split.sv"
+add_file -verilog -vlog_std sysv -folder mmu "../../../../lib/cpu/itlb_2way_split.sv"
+add_file -verilog -vlog_std sysv -folder mmu "../../../../lib/cpu/mmuwalk.sv"
+add_file -verilog -vlog_std sysv -folder mmu "../../../../lib/tech/xilinx/virtex5/itlbram.sv"
+add_file -verilog -vlog_std sysv -folder mmu "../../../../lib/tech/xilinx/virtex5/dtlbram.sv"
+add_file -verilog -vlog_std sysv -folder mmu "../../../../lib/cpu/immu.sv"
+add_file -verilog -vlog_std sysv -folder mmu "../../../../lib/cpu/dmmu.sv"
+add_file -verilog -vlog_std sysv "../../../../lib/cpu/exception_dma.sv"
+add_file -verilog -vlog_std sysv "../../../../lib/cpu/icache.sv"
+add_file -verilog -vlog_std sysv "../../../../lib/tech/xilinx/virtex5/dmabuf.sv"
+add_file -verilog -vlog_std sysv "../../../../lib/cpu/debugdma.sv"
+add_file -verilog -vlog_std sysv "../../../../lib/mem/ddr2memctrl_fast.sv"
+add_file -verilog -vlog_std sysv "../../../../lib/cpu/memory_mmu.sv"
+add_file -verilog -vlog_std sysv "../../../../lib/mem/dramctrl_network.sv"
+add_file -verilog -vlog_std sysv "../../../../lib/cpu/ifetch_dma.sv"
+add_file -verilog -vlog_std sysv "../../../../lib/mem/memif.sv"
+add_file -verilog -vlog_std sysv "../../../../lib/cpu/regacc_dma.sv"
+add_file -verilog -vlog_std sysv "../../../../lib/tech/xilinx/virtex5/regfile.sv"
+add_file -constraint "./top_1P_bee3mem.sdc"
+add_file -verilog -vlog_std sysv -folder fpu "../../../../lib/fpu/fpu.sv"
+add_file -verilog -vlog_std sysv -folder fpu "../../../../lib/tech/xilinx/virtex5/fpregfile.sv"
+add_file -verilog -vlog_std sysv -folder tm "../../../../lib/tm/cpu/tm_cache.sv"
+add_file -verilog -vlog_std sysv -folder tm "../../../../lib/tm/cpu/tm_cpu_dram.sv"
+add_file -verilog -vlog_std sysv -folder tm "../../../../lib/tm/perfctr/perfctr.sv"
+add_file -verilog -vlog_std sysv -folder tm "../../../../lib/tm/cpu/tm_cpu_l2.sv"
+add_file -verilog -vlog_std sysv -folder tm "../../../../lib/tm/cpu/tm_cpu_l1_ring.sv"
+add_file -edif "../../../../lib/fpu/fp_addsub_dp.ndf"
+add_file -edif "../../../../lib/fpu/fp_cmp_dp.ndf"
+add_file -edif "../../../../lib/fpu/fp_conv_dp_sp.ndf"
+add_file -edif "../../../../lib/fpu/fp_conv_sp_dp.ndf"
+add_file -edif "../../../../lib/fpu/fp_mult_dp.ndf"
+add_file -edif "../../../../lib/fpu/fp_itod.ndf"
+add_file -edif "../../../../lib/fpu/fp_itos.ndf"
+add_file -verilog -folder fpu "../../../../lib/fpu/fp_addsub_dp.v"
+add_file -verilog -folder fpu "../../../../lib/fpu/fp_cmp_dp.v"
+add_file -verilog -folder fpu "../../../../lib/fpu/fp_conv_dp_sp.v"
+add_file -verilog -folder fpu "../../../../lib/fpu/fp_conv_sp_dp.v"
+add_file -verilog -folder fpu "../../../../lib/fpu/fp_itod.v"
+add_file -verilog -folder fpu "../../../../lib/fpu/fp_itos.v"
+add_file -verilog -folder fpu "../../../../lib/fpu/fp_mult_dp.v"
+add_file -verilog -folder fpu "../../../../lib/fpu/fp_ftoi.v"
+add_file -verilog -vlog_std sysv -folder io "../../../../lib/io/timer.sv"
+add_file -verilog -vlog_std sysv -folder io "../../../../lib/io/irqmp.sv"
+add_file -ucf -job_owner par "../../ise/test_1P_mmu_l2/inhibit_false.ucf"
+add_file -verilog -vlog_std sysv -folder tm "../../../../lib/tm/cpu/tm_cpu_memsystem.sv"
+add_file -verilog -vlog_std sysv -folder tm "../../../../lib/tm/cpu/tm_cpu_dram_gsf.sv"
+add_file -verilog -vlog_std sysv -folder eth "../../../../lib/eth/eth_cpu_control.sv"
+add_file -verilog -vlog_std sysv -folder eth "../../../../lib/eth/eth_dma_controller.sv"
+add_file -verilog -vlog_std sysv -folder eth "../../../../lib/eth/eth_mac_ram.sv"
+add_file -verilog -vlog_std sysv -folder eth "../../../../lib/eth/eth_rx.sv"
+add_file -verilog -vlog_std sysv -folder eth "../../../../lib/eth/eth_tm_control.sv"
+add_file -verilog -vlog_std sysv -folder eth "../../../../lib/eth/eth_tx.sv"
+add_file -verilog -vlog_std sysv -folder eth "../../../../lib/stdlib/sync_lutram_fifo.sv"
+add_file -verilog -vlog_std sysv -folder eth "../../../../lib/tech/xilinx/virtex5/mac_gmii.sv"
+add_file -verilog -vlog_std sysv "../../../../designs/test_1P_bee3_dma/top_1P_bee3_neweth.sv"
+add_file -verilog -vlog_std sysv "../../../../lib/cpu/xalu_fast.sv"
+
+
+#implementation: "rev_1"
+impl -add rev_1 -type fpga
+
+#
+#implementation attributes
+
+set_option -vlog_std sysv
+set_option -num_critical_paths 50
+set_option -num_startend_points 50
+set_option -project_relative_includes 1
+set_option -enable_nfilter 0
+set_option -hdl_define -set "_ALPHA_FEATURES_ON_ SYNP94  ZEROBRAM STRUCTBUGWKRD"
+set_option -include_path /scratch/xtan/sparcmt/lib/
+
+#par_1 attributes
+set_option -job par_1 -add par
+set_option -job par_1 -option run_backannotation 0
+set_option -job par_1 -option xtclsh_option_file /home/xtan/synplify/xilinx_gp_ramp.tcl
+
+#device options
+set_option -technology Virtex5
+set_option -part XC5VLX110T
+set_option -package FF1136
+set_option -speed_grade -1
+set_option -part_companion ""
+
+#compilation/mapping options
+set_option -use_fsm_explorer 1
+set_option -top_module "fpga_top"
+
+# mapper_options
+set_option -frequency 233.000000
+set_option -write_verilog 1
+set_option -write_vhdl 0
+
+# Xilinx Virtex2
+set_option -run_prop_extract 1
+set_option -maxfan 28
+set_option -disable_io_insertion 0
+set_option -pipe 1
+set_option -update_models_cp 0
+set_option -retiming 1
+set_option -no_sequential_opt 0
+set_option -fixgatedclocks 3
+set_option -fixgeneratedclocks 3
+
+# Xilinx Virtex5
+set_option -enable_prepacking 1
+
+# NFilter
+set_option -popfeed 0
+set_option -constprop 0
+set_option -createhierarchy 0
+
+# timing_analyst_options
+set_option -reporting_filter {-from {{i:gen_cpu.gen_if.genblk92\.genblk93\.spreg.y\[0\]\.y_y\[0\]\.y_20_0}} }
+
+# sequential_optimization_options
+set_option -symbolic_fsm_compiler 1
+
+# Compiler Options
+set_option -compiler_compatible 0
+set_option -resource_sharing 0
+set_option -ucf ""
+
+#VIF options
+set_option -write_vif 1
+
+#automatic place and route (vendor) options
+set_option -write_apr_constraint 1
+
+#set result format/file last
+project -result_file "./rev_1/cpu_top.edf"
+
+#design plan options
+set_option -nfilter_user_path ""
+impl -active "rev_1"

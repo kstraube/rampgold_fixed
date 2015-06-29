@@ -1,0 +1,10 @@
+ipl.verify = 0
+
+htif_sparchw_dma.eth_if = en4
+htif_sparchw_dma.hwaddr = 0x112233445566
+
+htif_sparcvs_dma.hostname = localhost
+htif_sparcvs_dma.port = 5671
+
+htif_x86_dma.eth_if = eth0
+htif_x86_dma.hwaddr = 0x000000000000

@@ -1,0 +1,57 @@
+FUNCTIONAL_SRC_DIR := $(BUILD_DIR)/../Functional
+FUNCTIONAL_OBJ_DIR := $(BUILD_DIR)/obj/Functional
+
+FUNCTIONAL_OBJS := processor.o disassemble.o fpu.o memory.o sim.o interactive.o memif_sparcfs.o cache.o trapnames.o iobus.o
+FUNCTIONAL_SPECIAL_HEADERS := insns.ptrtable.gh insns.prototypes.gh trapnames.gh
+
+FUNCTIONAL_DEBUG_OBJS := $(patsubst %.o,$(FUNCTIONAL_OBJ_DIR)/%.d.o,$(FUNCTIONAL_OBJS))
+FUNCTIONAL_OBJS := $(patsubst %.o,$(FUNCTIONAL_OBJ_DIR)/%.o,$(FUNCTIONAL_OBJS))
+FUNCTIONAL_SPECIAL_HEADERS := $(patsubst %,$(FUNCTIONAL_SRC_DIR)/%,$(FUNCTIONAL_SPECIAL_HEADERS))
+
+functional: $(LIB_DIR)/libcgold.a $(LIB_DIR)/libcgold-debug.a
+
+$(LIB_DIR)/libcgold.a: $(FUNCTIONAL_OBJS)
+	@mkdir -p $(LIB_DIR)
+	ar rcs $@ $(FUNCTIONAL_OBJS)
+
+$(LIB_DIR)/libcgold-debug.a: $(FUNCTIONAL_DEBUG_OBJS)
+	@mkdir -p $(LIB_DIR)
+	ar rcs $@ $(FUNCTIONAL_DEBUG_OBJS)
+
+$(FUNCTIONAL_OBJ_DIR)/%.o: $(FUNCTIONAL_SRC_DIR)/%.cpp \
+                           $(FUNCTIONAL_SRC_DIR)/*.h \
+                           $(FUNCTIONAL_SPECIAL_HEADERS)
+	@mkdir -p $(FUNCTIONAL_OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ -c $<
+
+$(FUNCTIONAL_OBJ_DIR)/%.o: $(FUNCTIONAL_SRC_DIR)/%.c \
+                           $(FUNCTIONAL_SRC_DIR)/*.h \
+                           $(FUNCTIONAL_SPECIAL_HEADERS)
+	@mkdir -p $(FUNCTIONAL_OBJ_DIR)
+	$(CC) $(CFLAGS) -o $@ -c $<
+
+$(FUNCTIONAL_OBJ_DIR)/%.d.o: $(FUNCTIONAL_SRC_DIR)/%.cpp \
+                             $(FUNCTIONAL_SRC_DIR)/*.h \
+                             $(FUNCTIONAL_SPECIAL_HEADERS)
+	@mkdir -p $(FUNCTIONAL_OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -DDEBUG_MODE -o $@ -c $<
+
+$(FUNCTIONAL_OBJ_DIR)/%.d.o: $(FUNCTIONAL_SRC_DIR)/%.c \
+                             $(FUNCTIONAL_SRC_DIR)/*.h \
+                             $(FUNCTIONAL_SPECIAL_HEADERS)
+	@mkdir -p $(FUNCTIONAL_OBJ_DIR)
+	$(CC) $(CFLAGS) -DDEBUG_MODE -o $@ -c $<
+
+$(FUNCTIONAL_SRC_DIR)/trapnames.gh: $(FUNCTIONAL_SRC_DIR)/traps.h $(FUNCTIONAL_SRC_DIR)/Makefrag
+	grep '^  trap_.*' $(FUNCTIONAL_SRC_DIR)/traps.h | sed 's/  \(trap_.*\)\(=.*\)/strcpy(trap_names[\1],"\1");/' > $(FUNCTIONAL_SRC_DIR)/trapnames.gh
+
+$(FUNCTIONAL_SRC_DIR)/insns.prototypes.gh: $(FUNCTIONAL_SRC_DIR)/insns.def $(FUNCTIONAL_SRC_DIR)/Makefrag
+	grep '^DEFINE_INSN(.*)' $(FUNCTIONAL_SRC_DIR)/insns.def | sed 's/DEFINE_INSN(\(.*\))/insn_return_t insn_func_\1(insn_return_t,uint32_t);/' > $(FUNCTIONAL_SRC_DIR)/insns.prototypes.gh
+
+$(FUNCTIONAL_SRC_DIR)/insns.ptrtable.gh: $(FUNCTIONAL_SRC_DIR)/insns.def $(FUNCTIONAL_SRC_DIR)/Makefrag
+	grep '^DEFINE_INSN(.*)' $(FUNCTIONAL_SRC_DIR)/insns.def | sed 's/DEFINE_INSN(\(.*\))/insn_funcs[\1] = \&processor_t::insn_func_\1;/' > $(FUNCTIONAL_SRC_DIR)/insns.ptrtable.gh
+
+functional-clean: functional-example-clean
+	-rm -f $(LIB_DIR)/libcgold.a $(LIB_DIR)/libcgold-debug.a $(FUNCTIONAL_SRC_DIR)/*.gh
+
+include $(FUNCTIONAL_SRC_DIR)/Example/Makefrag

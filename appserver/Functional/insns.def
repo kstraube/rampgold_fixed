@@ -1,0 +1,1155 @@
+/* Author: Andrew S. Waterman
+ *         Parallel Computing Laboratory
+ *         Electrical Engineering and Computer Sciences
+ *         University of California, Berkeley
+ *
+ * Copyright (c) 2008, The Regents of the University of California.
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *     * Redistributions of source code must retain the above copyright
+ *       notice, this list of conditions and the following disclaimer.
+ *     * Redistributions in binary form must reproduce the above copyright
+ *       notice, this list of conditions and the following disclaimer in the
+ *       documentation and/or other materials provided with the distribution.
+ *     * Neither the name of the University of California, Berkeley nor the
+ *       names of its contributors may be used to endorse or promote products
+ *       derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE REGENTS ''AS IS'' AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+ * IN NO EVENT SHALL THE REGENTS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+ * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+ * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+
+DEFINE_INSN(opLDSB)
+  uint8_t val = mmu->load_byte_fast(EFFECTIVE_ADDRESS,PSR.S);
+  #ifdef CACHE_SIM
+    int latency = dcache->read(this,EFFECTIVE_ADDRESS);
+    stall += latency-1;
+    if(latency == 1)
+      nldhit++;
+  #endif
+  wrreg(RD,(uint32_t)(int32_t)(int8_t)val);
+  nld++;
+  trace("ld",BYTEMASK(EFFECTIVE_ADDRESS,1),EFFECTIVE_ADDRESS,pregnum(PSR.CWP,RS1),pregnum(PSR.CWP,HAS_IMMEDIATE?0:RS2),0,pregnum(PSR.CWP,RD));
+END_INSN(opLDSB)
+
+DEFINE_INSN(opLDSH)
+  TRAP_IF(EFFECTIVE_ADDRESS & 0x1, trap_mem_address_not_aligned);
+  uint16_t val = mmu->load_halfword_fast(EFFECTIVE_ADDRESS,PSR.S);
+  #ifdef CACHE_SIM
+    int latency = dcache->read(this,EFFECTIVE_ADDRESS);
+    stall += latency-1;
+    if(latency == 1)
+      nldhit++;
+  #endif
+  wrreg(RD,(uint32_t)(int32_t)(int16_t)val);
+  nld++;
+  trace("ld",BYTEMASK(EFFECTIVE_ADDRESS,2),EFFECTIVE_ADDRESS,pregnum(PSR.CWP,RS1),pregnum(PSR.CWP,HAS_IMMEDIATE?0:RS2),0,pregnum(PSR.CWP,RD));
+END_INSN(opLDSH)
+
+DEFINE_INSN(opLDUB)
+  uint8_t val = mmu->load_byte_fast(EFFECTIVE_ADDRESS,PSR.S);
+  #ifdef CACHE_SIM
+    int latency = dcache->read(this,EFFECTIVE_ADDRESS);
+    stall += latency-1;
+    if(latency == 1)
+      nldhit++;
+  #endif
+  wrreg(RD,(uint32_t)val);
+  nld++;
+  trace("ld",BYTEMASK(EFFECTIVE_ADDRESS,1),EFFECTIVE_ADDRESS,pregnum(PSR.CWP,RS1),pregnum(PSR.CWP,HAS_IMMEDIATE?0:RS2),0,pregnum(PSR.CWP,RD));
+END_INSN(opLDUB)
+
+DEFINE_INSN(opLDUH)
+  TRAP_IF(EFFECTIVE_ADDRESS & 0x1, trap_mem_address_not_aligned);
+  uint16_t val = mmu->load_halfword_fast(EFFECTIVE_ADDRESS,PSR.S);
+  #ifdef CACHE_SIM
+    int latency = dcache->read(this,EFFECTIVE_ADDRESS);
+    stall += latency-1;
+    if(latency == 1)
+      nldhit++;
+  #endif
+  wrreg(RD,(uint32_t)val);
+  nld++;
+  trace("ld",BYTEMASK(EFFECTIVE_ADDRESS,2),EFFECTIVE_ADDRESS,pregnum(PSR.CWP,RS1),pregnum(PSR.CWP,HAS_IMMEDIATE?0:RS2),0,pregnum(PSR.CWP,RD));
+END_INSN(opLDUH)
+
+DEFINE_INSN(opLD)
+  TRAP_IF(EFFECTIVE_ADDRESS & 0x3, trap_mem_address_not_aligned);
+  uint32_t val = mmu->load_word_fast(EFFECTIVE_ADDRESS,PSR.S);
+  #ifdef CACHE_SIM
+    int latency = dcache->read(this,EFFECTIVE_ADDRESS);
+    stall += latency-1;
+    if(latency == 1)
+      nldhit++;
+  #endif
+  wrreg(RD,val);
+  nld++;
+  trace("ld",BYTEMASK(EFFECTIVE_ADDRESS,4),EFFECTIVE_ADDRESS,pregnum(PSR.CWP,RS1),pregnum(PSR.CWP,HAS_IMMEDIATE?0:RS2),0,pregnum(PSR.CWP,RD));
+END_INSN(opLD)
+
+DEFINE_INSN(opLDD)
+  TRAP_IF(RD & 1, trap_illegal_instruction);
+  TRAP_IF(EFFECTIVE_ADDRESS & 0x7, trap_mem_address_not_aligned);
+  uint64_t val = mmu->load_dword_fast(EFFECTIVE_ADDRESS,PSR.S);
+  #ifdef CACHE_SIM
+    int latency = dcache->read(this,EFFECTIVE_ADDRESS);
+    stall += latency-1;
+    if(latency == 1)
+      nldhit++;
+  #endif
+  wrreg(RD,  (uint32_t)(val>>32));
+  wrreg(RD+1,(uint32_t)val);
+  nld++;
+  trace("ld",BYTEMASK(EFFECTIVE_ADDRESS,8),EFFECTIVE_ADDRESS,pregnum(PSR.CWP,RS1),pregnum(PSR.CWP,HAS_IMMEDIATE?0:RS2),0,pregnum(PSR.CWP,RD));
+END_INSN(opLDD)
+
+DEFINE_INSN(opLDSBA)
+  TRAP_IF(!PSR.S,trap_privileged_instruction);
+  TRAP_IF(HAS_IMMEDIATE,trap_illegal_instruction);
+  uint8_t val = mmu->load_byte(EFFECTIVE_ADDRESS,ASI);
+  #ifdef CACHE_SIM
+    int latency = dcache->read(this,EFFECTIVE_ADDRESS);
+    stall += latency-1;
+    if(latency == 1)
+      nldhit++;
+  #endif
+  wrreg(RD,(uint32_t)(int32_t)(int8_t)val);
+  nld++;
+  trace("ld",BYTEMASK(EFFECTIVE_ADDRESS,1),EFFECTIVE_ADDRESS,pregnum(PSR.CWP,RS1),0,0,pregnum(PSR.CWP,RD));
+END_INSN(opLDSBA)
+
+DEFINE_INSN(opLDSHA)
+  TRAP_IF(!PSR.S,trap_privileged_instruction);
+  TRAP_IF(HAS_IMMEDIATE,trap_illegal_instruction);
+  TRAP_IF(EFFECTIVE_ADDRESS & 0x1, trap_mem_address_not_aligned);
+  uint16_t val = mmu->load_halfword(EFFECTIVE_ADDRESS,ASI);
+  #ifdef CACHE_SIM
+    int latency = dcache->read(this,EFFECTIVE_ADDRESS);
+    stall += latency-1;
+    if(latency == 1)
+      nldhit++;
+  #endif
+  wrreg(RD,(uint32_t)(int32_t)(int16_t)val);
+  nld++;
+  trace("ld",BYTEMASK(EFFECTIVE_ADDRESS,2),EFFECTIVE_ADDRESS,pregnum(PSR.CWP,RS1),0,0,pregnum(PSR.CWP,RD));
+END_INSN(opLDSHA)
+
+DEFINE_INSN(opLDUBA)
+  TRAP_IF(!PSR.S,trap_privileged_instruction);
+  TRAP_IF(HAS_IMMEDIATE,trap_illegal_instruction);
+  uint8_t val = mmu->load_byte(EFFECTIVE_ADDRESS,ASI);
+  #ifdef CACHE_SIM
+    int latency = dcache->read(this,EFFECTIVE_ADDRESS);
+    stall += latency-1;
+    if(latency == 1)
+      nldhit++;
+  #endif
+  wrreg(RD,(uint32_t)val);
+  nld++;
+  trace("ld",BYTEMASK(EFFECTIVE_ADDRESS,1),EFFECTIVE_ADDRESS,pregnum(PSR.CWP,RS1),0,0,pregnum(PSR.CWP,RD));
+END_INSN(opLDUBA)
+
+DEFINE_INSN(opLDUHA)
+  TRAP_IF(!PSR.S,trap_privileged_instruction);
+  TRAP_IF(HAS_IMMEDIATE,trap_illegal_instruction);
+  TRAP_IF(EFFECTIVE_ADDRESS & 0x1, trap_mem_address_not_aligned);
+  uint16_t val = mmu->load_halfword(EFFECTIVE_ADDRESS,ASI);
+  #ifdef CACHE_SIM
+    int latency = dcache->read(this,EFFECTIVE_ADDRESS);
+    stall += latency-1;
+    if(latency == 1)
+      nldhit++;
+  #endif
+  wrreg(RD,(uint32_t)val);
+  nld++;
+  trace("ld",BYTEMASK(EFFECTIVE_ADDRESS,2),EFFECTIVE_ADDRESS,pregnum(PSR.CWP,RS1),0,0,pregnum(PSR.CWP,RD));
+END_INSN(opLDUHA)
+
+DEFINE_INSN(opLDA)
+  TRAP_IF(!PSR.S,trap_privileged_instruction);
+  TRAP_IF(HAS_IMMEDIATE,trap_illegal_instruction);
+  TRAP_IF(EFFECTIVE_ADDRESS & 0x3, trap_mem_address_not_aligned);
+  uint32_t val = mmu->load_word(EFFECTIVE_ADDRESS,ASI);
+  #ifdef CACHE_SIM
+    int latency = dcache->read(this,EFFECTIVE_ADDRESS);
+    stall += latency-1;
+    if(latency == 1)
+      nldhit++;
+  #endif
+  wrreg(RD,val);
+  nld++;
+  trace("ld",BYTEMASK(EFFECTIVE_ADDRESS,4),EFFECTIVE_ADDRESS,pregnum(PSR.CWP,RS1),0,0,pregnum(PSR.CWP,RD));
+END_INSN(opLDA)
+
+DEFINE_INSN(opLDDA)
+  TRAP_IF(!PSR.S,trap_privileged_instruction);
+  TRAP_IF(HAS_IMMEDIATE,trap_illegal_instruction);
+  TRAP_IF(RD & 1, trap_illegal_instruction);
+  TRAP_IF(EFFECTIVE_ADDRESS & 0x7, trap_mem_address_not_aligned);
+  uint64_t val = mmu->load_dword(EFFECTIVE_ADDRESS,ASI);
+  #ifdef CACHE_SIM
+    int latency = dcache->read(this,EFFECTIVE_ADDRESS);
+    stall += latency-1;
+    if(latency == 1)
+      nldhit++;
+  #endif
+  wrreg(RD,  (uint32_t)(val>>32));
+  wrreg(RD+1,(uint32_t)val);
+  nld++;
+  trace("ld",BYTEMASK(EFFECTIVE_ADDRESS,8),EFFECTIVE_ADDRESS,pregnum(PSR.CWP,RS1),0,0,pregnum(PSR.CWP,RD));
+END_INSN(opLDDA)
+
+DEFINE_INSN(opLDF)
+  TRAP_IF(!PSR.EF,trap_fp_disabled);
+  TRAP_IF(EFFECTIVE_ADDRESS & 0x3, trap_mem_address_not_aligned);
+  uint32_t val = mmu->load_word_fast(EFFECTIVE_ADDRESS,PSR.S);
+  #ifdef CACHE_SIM
+    int latency = dcache->read(this,EFFECTIVE_ADDRESS);
+    stall += latency-1;
+    if(latency == 1)
+      nldhit++;
+  #endif
+  fpu->wrreg(RD,val);
+  nld++;
+  trace("ld",BYTEMASK(EFFECTIVE_ADDRESS,4),EFFECTIVE_ADDRESS,pregnum(PSR.CWP,RS1),pregnum(PSR.CWP,HAS_IMMEDIATE?0:RS2),0,pregnum(NWINDOWS,RD));
+END_INSN(opLDF)
+
+DEFINE_INSN(opLDDF)
+  TRAP_IF(!PSR.EF,trap_fp_disabled);
+  TRAP_IF(EFFECTIVE_ADDRESS & 0x7, trap_mem_address_not_aligned);
+  FP_TRAP_IF(RD&1,fp_trap_invalid_fp_register);
+  uint64_t val = mmu->load_dword_fast(EFFECTIVE_ADDRESS,PSR.S);
+  #ifdef CACHE_SIM
+    int latency = dcache->read(this,EFFECTIVE_ADDRESS);
+    stall += latency-1;
+    if(latency == 1)
+      nldhit++;
+  #endif
+  fpu->wrreg(RD,  (uint32_t)(val>>32));
+  fpu->wrreg(RD+1,(uint32_t)val);
+  nld++;
+  trace("ld",BYTEMASK(EFFECTIVE_ADDRESS,8),EFFECTIVE_ADDRESS,pregnum(PSR.CWP,RS1),pregnum(PSR.CWP,HAS_IMMEDIATE?0:RS2),0,pregnum(NWINDOWS,RD));
+END_INSN(opLDDF)
+
+DEFINE_INSN(opLDFSR)
+  TRAP_IF(!PSR.EF,trap_fp_disabled);
+  TRAP_IF(EFFECTIVE_ADDRESS & 0x3, trap_mem_address_not_aligned);
+  uint32_t val = mmu->load_word_fast(EFFECTIVE_ADDRESS,PSR.S);
+  #ifdef CACHE_SIM
+    int latency = dcache->read(this,EFFECTIVE_ADDRESS);
+    stall += latency-1;
+    if(latency == 1)
+      nldhit++;
+  #endif
+  fpu->setFSR(val);
+  nld++;
+  trace("ld",BYTEMASK(EFFECTIVE_ADDRESS,4),0,pregnum(PSR.CWP,RS1),pregnum(PSR.CWP,HAS_IMMEDIATE?0:RS2),0,0);
+END_INSN(opLDFSR)
+  
+
+DEFINE_INSN(opLDC)
+  TRAP_IF(!PSR.EC,trap_cp_disabled);
+  TRAP_IF(EFFECTIVE_ADDRESS & 0x3, trap_mem_address_not_aligned);
+END_INSN(opLDC)
+
+DEFINE_INSN(opLDDC)
+  TRAP_IF(!PSR.EC,trap_cp_disabled);
+  TRAP_IF(RD & 1, trap_illegal_instruction);
+  TRAP_IF(EFFECTIVE_ADDRESS & 0x7, trap_mem_address_not_aligned);
+END_INSN(opLDDC)
+
+DEFINE_INSN(opLDCSR)
+  TRAP_IF(!PSR.EC,trap_cp_disabled);
+  TRAP_IF(EFFECTIVE_ADDRESS & 0x3, trap_mem_address_not_aligned);
+END_INSN(opLDCSR)
+  
+DEFINE_INSN(opSTB)
+  mmu->store_byte_fast(EFFECTIVE_ADDRESS,RDVAL,PSR.S);
+  nst++;
+  #ifdef CACHE_SIM
+    int latency = dcache->write(this,EFFECTIVE_ADDRESS);
+    stall += latency-1;
+    if(latency == 1)
+      nsthit++;
+  #endif
+  trace("st",BYTEMASK(EFFECTIVE_ADDRESS,1),EFFECTIVE_ADDRESS,pregnum(PSR.CWP,RS1),pregnum(PSR.CWP,HAS_IMMEDIATE?0:RS2),pregnum(PSR.CWP,RD),0);
+END_INSN(opSTB)
+
+DEFINE_INSN(opSTH)
+  TRAP_IF(EFFECTIVE_ADDRESS & 0x1, trap_mem_address_not_aligned);
+  mmu->store_halfword_fast(EFFECTIVE_ADDRESS,RDVAL,PSR.S);
+  nst++;
+  #ifdef CACHE_SIM
+    int latency = dcache->write(this,EFFECTIVE_ADDRESS);
+    stall += latency-1;
+    if(latency == 1)
+      nsthit++;
+  #endif
+  trace("st",BYTEMASK(EFFECTIVE_ADDRESS,2),EFFECTIVE_ADDRESS,pregnum(PSR.CWP,RS1),pregnum(PSR.CWP,HAS_IMMEDIATE?0:RS2),pregnum(PSR.CWP,RD),0);
+END_INSN(opSTH)
+
+DEFINE_INSN(opST)
+  TRAP_IF(EFFECTIVE_ADDRESS & 0x3, trap_mem_address_not_aligned);
+  mmu->store_word_fast(EFFECTIVE_ADDRESS,RDVAL,PSR.S);
+  nst++;
+  #ifdef CACHE_SIM
+    int latency = dcache->write(this,EFFECTIVE_ADDRESS);
+    stall += latency-1;
+    if(latency == 1)
+      nsthit++;
+  #endif
+  trace("st",BYTEMASK(EFFECTIVE_ADDRESS,4),EFFECTIVE_ADDRESS,pregnum(PSR.CWP,RS1),pregnum(PSR.CWP,HAS_IMMEDIATE?0:RS2),pregnum(PSR.CWP,RD),0);
+END_INSN(opST)
+
+DEFINE_INSN(opSTD)
+  TRAP_IF(RD & 1, trap_illegal_instruction);
+  TRAP_IF(EFFECTIVE_ADDRESS & 0x7, trap_mem_address_not_aligned);
+  uint64_t val = reg(RD);
+  val = (val << 32) | reg(RD+1);
+  mmu->store_dword_fast(EFFECTIVE_ADDRESS,val,PSR.S);
+  nst++;
+  #ifdef CACHE_SIM
+    int latency = dcache->write(this,EFFECTIVE_ADDRESS);
+    stall += latency-1;
+    if(latency == 1)
+      nsthit++;
+  #endif
+  trace("st",BYTEMASK(EFFECTIVE_ADDRESS,8),EFFECTIVE_ADDRESS,pregnum(PSR.CWP,RS1),pregnum(PSR.CWP,HAS_IMMEDIATE?0:RS2),pregnum(PSR.CWP,RD),0);
+END_INSN(opSTD)
+
+DEFINE_INSN(opSTBA)
+  TRAP_IF(!PSR.S,trap_privileged_instruction);
+  TRAP_IF(HAS_IMMEDIATE,trap_illegal_instruction);
+  mmu->store_byte(EFFECTIVE_ADDRESS,RDVAL,ASI);
+  nst++;
+  #ifdef CACHE_SIM
+    int latency = dcache->write(this,EFFECTIVE_ADDRESS);
+    stall += latency-1;
+    if(latency == 1)
+      nsthit++;
+  #endif
+  trace("st",BYTEMASK(EFFECTIVE_ADDRESS,1),EFFECTIVE_ADDRESS,pregnum(PSR.CWP,RS1),0,pregnum(PSR.CWP,RD),0);
+END_INSN(opSTBA)
+
+DEFINE_INSN(opSTHA)
+  TRAP_IF(!PSR.S,trap_privileged_instruction);
+  TRAP_IF(HAS_IMMEDIATE,trap_illegal_instruction);
+  TRAP_IF(EFFECTIVE_ADDRESS & 0x1, trap_mem_address_not_aligned);
+  mmu->store_halfword(EFFECTIVE_ADDRESS,RDVAL,ASI);
+  nst++;
+  #ifdef CACHE_SIM
+    int latency = dcache->write(this,EFFECTIVE_ADDRESS);
+    stall += latency-1;
+    if(latency == 1)
+      nsthit++;
+  #endif
+  trace("st",BYTEMASK(EFFECTIVE_ADDRESS,2),EFFECTIVE_ADDRESS,pregnum(PSR.CWP,RS1),0,pregnum(PSR.CWP,RD),0);
+END_INSN(opSTHA)
+
+DEFINE_INSN(opSTA)
+  TRAP_IF(!PSR.S,trap_privileged_instruction);
+  TRAP_IF(HAS_IMMEDIATE,trap_illegal_instruction);
+  TRAP_IF(EFFECTIVE_ADDRESS & 0x3, trap_mem_address_not_aligned);
+  mmu->store_word(EFFECTIVE_ADDRESS,RDVAL,ASI);
+  nst++;
+  #ifdef CACHE_SIM
+    int latency = dcache->write(this,EFFECTIVE_ADDRESS);
+    stall += latency-1;
+    if(latency == 1)
+      nsthit++;
+  #endif
+  trace("st",BYTEMASK(EFFECTIVE_ADDRESS,4),EFFECTIVE_ADDRESS,pregnum(PSR.CWP,RS1),0,pregnum(PSR.CWP,RD),0);
+END_INSN(opSTA)
+
+DEFINE_INSN(opSTDA)
+  TRAP_IF(!PSR.S,trap_privileged_instruction);
+  TRAP_IF(HAS_IMMEDIATE,trap_illegal_instruction);
+  TRAP_IF(RD & 1, trap_illegal_instruction);
+  TRAP_IF(EFFECTIVE_ADDRESS & 0x7, trap_mem_address_not_aligned);
+  uint64_t val = reg(RD);
+  val = (val << 32) | reg(RD+1);
+  mmu->store_dword(EFFECTIVE_ADDRESS,val,ASI);
+  nst++;
+  #ifdef CACHE_SIM
+    int latency = dcache->write(this,EFFECTIVE_ADDRESS);
+    stall += latency-1;
+    if(latency == 1)
+      nsthit++;
+  #endif
+  trace("st",BYTEMASK(EFFECTIVE_ADDRESS,8),EFFECTIVE_ADDRESS,pregnum(PSR.CWP,RS1),0,pregnum(PSR.CWP,RD),0);
+END_INSN(opSTDA)
+
+DEFINE_INSN(opSTF)
+  TRAP_IF(!PSR.EF,trap_fp_disabled);
+  TRAP_IF(EFFECTIVE_ADDRESS & 0x3, trap_mem_address_not_aligned);
+  mmu->store_word_fast(EFFECTIVE_ADDRESS,fpu->reg(RD),PSR.S);
+  nst++;
+  #ifdef CACHE_SIM
+    int latency = dcache->write(this,EFFECTIVE_ADDRESS);
+    stall += latency-1;
+    if(latency == 1)
+      nsthit++;
+  #endif
+  trace("st",BYTEMASK(EFFECTIVE_ADDRESS,4),EFFECTIVE_ADDRESS,pregnum(PSR.CWP,RS1),pregnum(PSR.CWP,HAS_IMMEDIATE?0:RS2),pregnum(NWINDOWS,RD),0);
+END_INSN(opSTF)
+
+DEFINE_INSN(opSTDF)
+  TRAP_IF(!PSR.EF,trap_fp_disabled);
+  TRAP_IF(EFFECTIVE_ADDRESS & 0x7, trap_mem_address_not_aligned);
+  FP_TRAP_IF(RD&1,fp_trap_invalid_fp_register);
+  uint64_t val = fpu->reg(RD);
+  val = (val << 32) | fpu->reg(RD+1);
+  mmu->store_dword_fast(EFFECTIVE_ADDRESS,val,PSR.S);
+  nst++;
+  #ifdef CACHE_SIM
+    int latency = dcache->write(this,EFFECTIVE_ADDRESS);
+    stall += latency-1;
+    if(latency == 1)
+      nsthit++;
+  #endif
+  trace("st",BYTEMASK(EFFECTIVE_ADDRESS,8),EFFECTIVE_ADDRESS,pregnum(PSR.CWP,RS1),pregnum(PSR.CWP,HAS_IMMEDIATE?0:RS2),pregnum(NWINDOWS,RD),0);
+END_INSN(opSTDF)
+
+DEFINE_INSN(opSTFSR)
+  TRAP_IF(!PSR.EF,trap_fp_disabled);
+  TRAP_IF(EFFECTIVE_ADDRESS & 0x3, trap_mem_address_not_aligned);
+  mmu->store_word_fast(EFFECTIVE_ADDRESS,fpu->getFSR(),PSR.S);
+  fpu->clear_ftt();
+  nst++;
+  #ifdef CACHE_SIM
+    int latency = dcache->write(this,EFFECTIVE_ADDRESS);
+    stall += latency-1;
+    if(latency == 1)
+      nsthit++;
+  #endif
+  trace("st",BYTEMASK(EFFECTIVE_ADDRESS,4),EFFECTIVE_ADDRESS,pregnum(PSR.CWP,RS1),pregnum(PSR.CWP,HAS_IMMEDIATE?0:RS2),0,0);
+END_INSN(opSTFSR)
+
+DEFINE_INSN(opSTDFQ)
+  TRAP_IF(!PSR.S,trap_privileged_instruction);
+  TRAP_IF(!PSR.EF,trap_fp_disabled);
+  TRAP_IF(EFFECTIVE_ADDRESS & 0x7, trap_mem_address_not_aligned);
+  FP_TRAP_IF(1,fp_trap_sequence_error);
+END_INSN(opSTDFQ)
+
+DEFINE_INSN(opSTC)
+  TRAP_IF(!PSR.EC,trap_cp_disabled);
+  TRAP_IF(EFFECTIVE_ADDRESS & 0x3, trap_mem_address_not_aligned);
+END_INSN(opSTC)
+
+DEFINE_INSN(opSTDC)
+  TRAP_IF(!PSR.EC,trap_cp_disabled);
+  TRAP_IF(EFFECTIVE_ADDRESS & 0x7, trap_mem_address_not_aligned);
+  TRAP_IF(RD & 1, trap_cp_exception);
+END_INSN(opSTDC)
+
+DEFINE_INSN(opSTCSR)
+  TRAP_IF(!PSR.EC,trap_cp_disabled);
+  TRAP_IF(EFFECTIVE_ADDRESS & 0x3, trap_mem_address_not_aligned);
+END_INSN(opSTCSR)
+  
+DEFINE_INSN(opSTDCQ)
+  TRAP_IF(!PSR.EC,trap_cp_disabled);
+  TRAP_IF(!PSR.S,trap_privileged_instruction);
+  TRAP_IF(EFFECTIVE_ADDRESS & 0x7, trap_mem_address_not_aligned);
+  TRAP_IF(1,trap_illegal_instruction);
+END_INSN(opSTDCQ)
+
+DEFINE_INSN(opLDSTUB)
+  sim->lock();
+  uint8_t val;
+  try
+  {
+    val = mmu->load_byte_fast(EFFECTIVE_ADDRESS,PSR.S);
+    mmu->store_byte_fast(EFFECTIVE_ADDRESS,0xFF,PSR.S);
+  }
+  catch(trap_t trp)
+  {
+    sim->unlock();
+    throw;
+  }
+  sim->unlock();
+  wrreg(RD,val);
+  nst++;
+  namo++;
+  #ifdef CACHE_SIM
+    int latency = dcache->write(this,EFFECTIVE_ADDRESS);
+    stall += latency-1;
+    if(latency == 1)
+      nsthit++;
+  #endif
+  trace("swap",BYTEMASK(EFFECTIVE_ADDRESS/4*4,4),EFFECTIVE_ADDRESS,pregnum(PSR.CWP,RS1),pregnum(PSR.CWP,HAS_IMMEDIATE?0:RS2),pregnum(PSR.CWP,RD),pregnum(PSR.CWP,RD));
+END_INSN(opLDSTUB)
+
+DEFINE_INSN(opLDSTUBA)
+  TRAP_IF(!PSR.S,trap_privileged_instruction);
+  TRAP_IF(HAS_IMMEDIATE,trap_illegal_instruction);
+  uint8_t val;
+  sim->lock();
+  try
+  {
+    val = mmu->load_byte(EFFECTIVE_ADDRESS,ASI);
+    mmu->store_byte(EFFECTIVE_ADDRESS,0xFF,ASI);
+  }
+  catch(trap_t trp) 
+  {
+    sim->unlock();
+    throw;
+  }
+  sim->unlock();
+  wrreg(RD,val);
+  nst++;
+  namo++;
+  #ifdef CACHE_SIM
+    int latency = dcache->write(this,EFFECTIVE_ADDRESS);
+    stall += latency-1;
+    if(latency == 1)
+      nsthit++;
+  #endif
+  trace("swap",BYTEMASK(EFFECTIVE_ADDRESS/4*4,4),EFFECTIVE_ADDRESS,pregnum(PSR.CWP,RS1),0,pregnum(PSR.CWP,RD),pregnum(PSR.CWP,RD));
+END_INSN(opLDSTUBA)
+
+DEFINE_INSN(opSWAP)
+  TRAP_IF(EFFECTIVE_ADDRESS & 0x3, trap_mem_address_not_aligned);
+  uint32_t val;
+  sim->lock();
+  try
+  {
+    val = mmu->load_word_fast(EFFECTIVE_ADDRESS,PSR.S);
+    mmu->store_word_fast(EFFECTIVE_ADDRESS,RDVAL,PSR.S);
+  }
+  catch(trap_t trp)
+  {
+    sim->unlock();
+    throw;
+  }
+  sim->unlock();
+  wrreg(RD,val);
+  nst++;
+  namo++;
+  #ifdef CACHE_SIM
+    int latency = dcache->write(this,EFFECTIVE_ADDRESS);
+    stall += latency-1;
+    if(latency == 1)
+      nsthit++;
+  #endif
+  trace("swap",BYTEMASK(EFFECTIVE_ADDRESS,4),EFFECTIVE_ADDRESS,pregnum(PSR.CWP,RS1),pregnum(PSR.CWP,HAS_IMMEDIATE?0:RS2),pregnum(PSR.CWP,RD),pregnum(PSR.CWP,RD));
+END_INSN(opSWAP)
+
+DEFINE_INSN(opSWAPA)
+  TRAP_IF(!PSR.S,trap_privileged_instruction);
+  TRAP_IF(HAS_IMMEDIATE,trap_illegal_instruction);
+  TRAP_IF(EFFECTIVE_ADDRESS & 0x3, trap_mem_address_not_aligned);
+  uint32_t val;
+  sim->lock();
+  try
+  {
+    val = mmu->load_word(EFFECTIVE_ADDRESS,ASI);
+    mmu->store_word(EFFECTIVE_ADDRESS,RDVAL,ASI);
+  }
+  catch(trap_t trp)
+  {
+    sim->unlock();
+    throw;
+  }
+  sim->unlock();
+  wrreg(RD,val);
+  nst++;
+  namo++;
+  #ifdef CACHE_SIM
+    int latency = dcache->write(this,EFFECTIVE_ADDRESS);
+    stall += latency-1;
+    if(latency == 1)
+      nsthit++;
+  #endif
+  trace("swap",BYTEMASK(EFFECTIVE_ADDRESS,4),EFFECTIVE_ADDRESS,pregnum(PSR.CWP,RS1),0,pregnum(PSR.CWP,RD),pregnum(PSR.CWP,RD));
+END_INSN(opSWAPA)
+
+DEFINE_INSN(opSETHI)
+  wrreg(RD,IMM22 << 10);
+  trace("alu",0,0,0,0,0,pregnum(PSR.CWP,RD));
+END_INSN(opSETHI)
+
+DEFINE_INSN(opSETHIa) // ugly, but SETHI has op1==0, so needs an annul form
+  wrreg(RD,IMM22 << 10);
+  trace("alu",0,0,0,0,0,pregnum(PSR.CWP,RD));
+END_INSN(opSETHI)
+
+DEFINE_INSN(opANDcc)
+  uint32_t result = RS1VAL & RHSVAL;
+  wrreg(RD,result);
+  SETICC_LOGIC(result);
+  trace_alu();
+END_INSN(opANDcc)
+
+DEFINE_INSN(opAND)
+  uint32_t result = RS1VAL & RHSVAL;
+  wrreg(RD,result);
+  trace_alu();
+END_INSN(opAND)
+
+DEFINE_INSN(opANDNcc)
+  uint32_t result = RS1VAL & ~RHSVAL;
+  wrreg(RD,result);
+  SETICC_LOGIC(result);
+  trace_alu();
+END_INSN(opANDNcc)
+
+DEFINE_INSN(opANDN)
+  uint32_t result = RS1VAL & ~RHSVAL;
+  wrreg(RD,result);
+  trace_alu();
+END_INSN(opANDN)
+
+DEFINE_INSN(opORcc)
+  uint32_t result = RS1VAL | RHSVAL;
+  wrreg(RD,result);
+  SETICC_LOGIC(result);
+  trace_alu();
+END_INSN(opORcc)
+
+DEFINE_INSN(opOR)
+  uint32_t result = RS1VAL | RHSVAL;
+  wrreg(RD,result);
+  trace_alu();
+END_INSN(opOR)
+
+DEFINE_INSN(opORNcc)
+  uint32_t result = RS1VAL | ~RHSVAL;
+  wrreg(RD,result);
+  SETICC_LOGIC(result);
+  trace_alu();
+END_INSN(opORNcc)
+
+DEFINE_INSN(opORN)
+  uint32_t result = RS1VAL | ~RHSVAL;
+  wrreg(RD,result);
+  trace_alu();
+END_INSN(opORN)
+
+DEFINE_INSN(opXORcc)
+  uint32_t result = RS1VAL ^ RHSVAL;
+  wrreg(RD,result);
+  SETICC_LOGIC(result);
+  trace_alu();
+END_INSN(opXORcc)
+
+DEFINE_INSN(opXOR)
+  uint32_t result = RS1VAL ^ RHSVAL;
+  wrreg(RD,result);
+  trace_alu();
+END_INSN(opXOR)
+
+DEFINE_INSN(opXNORcc)
+  uint32_t result = RS1VAL ^ ~RHSVAL;
+  wrreg(RD,result);
+  SETICC_LOGIC(result);
+  trace_alu();
+END_INSN(opXNORcc)
+
+DEFINE_INSN(opXNOR)
+  uint32_t result = RS1VAL ^ ~RHSVAL;
+  wrreg(RD,result);
+  trace_alu();
+END_INSN(opXNOR)
+
+DEFINE_INSN(opSLL)
+  nshift++;
+  wrreg(RD,RS1VAL << (RHSVAL & 0x1F));
+  trace_alu();
+END_INSN(opSLL)
+
+DEFINE_INSN(opSRL)
+  nshift++;
+  wrreg(RD,RS1VAL >> (RHSVAL & 0x1F));
+  trace_alu();
+END_INSN(opSRL)
+
+DEFINE_INSN(opSRA)
+  nshift++;
+  wrreg(RD, int32_t(RS1VAL) >> (RHSVAL & 0x1F));
+  trace_alu();
+END_INSN(opSRA)
+
+DEFINE_INSN(opADD)
+  uint32_t left = RS1VAL;
+  uint32_t right = RHSVAL;
+  uint32_t result = left+right;
+  wrreg(RD,result);
+  trace_alu();
+END_INSN(opADD)
+
+DEFINE_INSN(opADDcc)
+  uint32_t left = RS1VAL;
+  uint32_t right = RHSVAL;
+  uint32_t result = left+right;
+  wrreg(RD,result);
+  SETICC_ADD(left,right,result);
+  trace_alu();
+END_INSN(opADDcc)
+
+DEFINE_INSN(opADDX)
+  uint32_t left = RS1VAL;
+  uint32_t right = RHSVAL;
+  uint32_t result = left+right+(PSR.icc&1);
+  wrreg(RD,result);
+  trace_alu();
+END_INSN(opADDX)
+
+DEFINE_INSN(opADDXcc)
+  uint32_t left = RS1VAL;
+  uint32_t right = RHSVAL;
+  uint32_t result = left+right+(PSR.icc&1);
+  wrreg(RD,result);
+  SETICC_ADD(left,right,result);
+  trace_alu();
+END_INSN(opADDXcc)
+
+DEFINE_INSN(opTADDcc)
+  uint32_t left = RS1VAL;
+  uint32_t right = RHSVAL;
+  uint32_t result = left+right;
+
+  uint32_t temp_iccV;
+  temp_iccV = ((left & right & ~result) | (~left & ~right & result)) >> 31;
+  temp_iccV = temp_iccV | (((left | right) & 0x3) != 0);
+
+  SETICC_ADD(left,right,result);
+  PSR.icc = PSR.icc & ~2 | temp_iccV<<1;
+  wrreg(RD,result);
+  trace_alu();
+END_INSN(opTADDcc)
+
+DEFINE_INSN(opTADDccTV)
+  uint32_t left = RS1VAL;
+  uint32_t right = RHSVAL;
+  uint32_t result = left+right;
+
+  uint32_t temp_iccV;
+  temp_iccV = ((left & right & ~result) | (~left & ~right & result)) >> 31;
+  temp_iccV = temp_iccV | (((left | right) & 0x3) != 0);
+
+  TRAP_IF(temp_iccV, trap_tag_overflow);
+
+  SETICC_ADD(left,right,result);
+  PSR.icc = PSR.icc & ~2 | temp_iccV<<1;
+  wrreg(RD,result);
+  trace_alu();
+END_INSN(opTADDccTV)
+
+DEFINE_INSN(opSUB)
+  uint32_t left = RS1VAL;
+  uint32_t right = RHSVAL;
+  uint32_t result = left-right;
+  wrreg(RD,result);
+  trace_alu();
+END_INSN(opSUB)
+
+DEFINE_INSN(opSUBcc)
+  uint32_t left = RS1VAL;
+  uint32_t right = RHSVAL;
+  uint32_t result = left-right;
+  wrreg(RD,result);
+  SETICC_SUB(left,right,result);
+  trace_alu();
+END_INSN(opSUBcc)
+
+DEFINE_INSN(opSUBX)
+  uint32_t left = RS1VAL;
+  uint32_t right = RHSVAL;
+  uint32_t result = left-right-(PSR.icc&1);
+  wrreg(RD,result);
+  trace_alu();
+END_INSN(opSUBX)
+
+DEFINE_INSN(opSUBXcc)
+  uint32_t left = RS1VAL;
+  uint32_t right = RHSVAL;
+  uint32_t result = left-right-(PSR.icc&1);
+  wrreg(RD,result);
+  SETICC_SUB(left,right,result);
+  trace_alu();
+END_INSN(opSUBXcc)
+
+DEFINE_INSN(opTSUBcc)
+  uint32_t left = RS1VAL;
+  uint32_t right = RHSVAL;
+  uint32_t result = left-right;
+
+  uint32_t temp_iccV;
+  temp_iccV = ((left & ~right & ~result) | (~left & right & result)) >> 31;
+  temp_iccV = temp_iccV | (((left | right) & 0x3) != 0);
+
+  SETICC_SUB(left,right,result);
+  PSR.icc = PSR.icc & ~2 | temp_iccV<<1;
+  wrreg(RD,result);
+  trace_alu();
+END_INSN(opTSUBcc)
+
+DEFINE_INSN(opTSUBccTV)
+  uint32_t left = RS1VAL;
+  uint32_t right = RHSVAL;
+  uint32_t result = left-right;
+
+  uint32_t temp_iccV;
+  temp_iccV = ((left & ~right & ~result) | (~left & right & result)) >> 31;
+  temp_iccV = temp_iccV | (((left | right) & 0x3) != 0);
+
+  TRAP_IF(temp_iccV, trap_tag_overflow);
+
+  SETICC_SUB(left,right,result);
+  PSR.icc = PSR.icc & ~2 | temp_iccV<<1;
+  wrreg(RD,result);
+  trace_alu();
+END_INSN(opTSUBccTV)
+
+DEFINE_INSN(opMULScc)
+  uint32_t left = ((PSR.icc>>3 ^ PSR.icc>>1) << 31) | (RS1VAL >> 1);
+  uint32_t right = -(Y&1) & RHSVAL;
+  uint32_t result = left+right;
+  Y = (RS1VAL << 31) | (Y >> 1);
+  wrreg(RD,result);
+  SETICC_ADD(left,right,result);
+  trace_alu();
+END_INSN(opMULScc)
+
+DEFINE_INSN(opUMULcc)
+  nmul++;
+  uint64_t left = RS1VAL;
+  uint64_t right = RHSVAL;
+  uint64_t product = left*right;
+  Y = uint32_t(product >> 32);
+  uint32_t result = uint32_t(product);
+  wrreg(RD,result);
+  SETICC_LOGIC(result);
+  trace_alu();
+END_INSN(opUMULcc)
+
+DEFINE_INSN(opUMUL)
+  nmul++;
+  uint64_t left = RS1VAL;
+  uint64_t right = RHSVAL;
+  uint64_t product = left*right;
+  Y = uint32_t(product >> 32);
+  uint32_t result = uint32_t(product);
+  wrreg(RD,result);
+  trace_alu();
+END_INSN(opUMUL)
+
+DEFINE_INSN(opSMULcc)
+  nmul++;
+  int64_t left = int32_t(RS1VAL);
+  int64_t right = int32_t(RHSVAL);
+  uint64_t product = left*right;
+  Y = uint32_t(product >> 32);
+  uint32_t result = uint32_t(product);
+  wrreg(RD,result);
+  SETICC_LOGIC(result);
+  trace_alu();
+END_INSN(opSMULcc)
+
+DEFINE_INSN(opSMUL)
+  nmul++;
+  int64_t left = int32_t(RS1VAL);
+  int64_t right = int32_t(RHSVAL);
+  uint64_t product = left*right;
+  Y = uint32_t(product >> 32);
+  uint32_t result = uint32_t(product);
+  wrreg(RD,result);
+  trace_alu();
+END_INSN(opSMUL)
+
+DEFINE_INSN(opUDIVcc)
+  uint64_t left = (uint64_t(Y) << 32) | RS1VAL;
+  uint64_t right = RHSVAL;
+  TRAP_IF(right == 0,trap_division_by_zero);
+  uint64_t result = left/right;
+  uint32_t iccV = (result >> 32) != 0;
+  result |= -iccV;
+  wrreg(RD,result);
+  SETICC(result>>31,result==0,iccV,0);
+  trace_alu();
+  ndiv++;
+END_INSN(opUDIVcc)
+
+DEFINE_INSN(opUDIV)
+  ndiv++;
+  uint64_t left = (uint64_t(Y) << 32) | RS1VAL;
+  uint64_t right = RHSVAL;
+  TRAP_IF(right == 0,trap_division_by_zero);
+  uint64_t result = left/right;
+  uint32_t iccV = (result >> 32) != 0;
+  result |= -iccV;
+  wrreg(RD,result);
+  trace_alu();
+END_INSN(opUDIV)
+
+DEFINE_INSN(opSDIVcc)
+  int64_t left = (uint64_t(Y) << 32) | RS1VAL;
+  int64_t right = int32_t(RHSVAL);
+  TRAP_IF(right == 0,trap_division_by_zero);
+  int64_t result = left/right;
+  uint32_t iccV = (result & 0xFFFFFFFF80000000LL) != 0 && (result & 0xFFFFFFFF80000000LL) != 0xFFFFFFFF80000000LL;
+  result = iccV ? (result > 0 ? 0x7FFFFFFF : 0x80000000) : uint64_t(result);
+  wrreg(RD,result);
+  SETICC(result>>31,result==0,iccV,0);
+  trace_alu();
+  ndiv++;
+END_INSN(opSDIVcc)
+
+DEFINE_INSN(opSDIV)
+  int64_t left = (uint64_t(Y) << 32) | RS1VAL;
+  int64_t right = int32_t(RHSVAL);
+  TRAP_IF(right == 0,trap_division_by_zero);
+  int64_t result = left/right;
+  uint32_t iccV = (result & 0xFFFFFFFF80000000LL) != 0 && (result & 0xFFFFFFFF80000000LL) != 0xFFFFFFFF80000000LL;
+  result = iccV ? (result > 0 ? 0x7FFFFFFF : 0x80000000) : uint64_t(result);
+  wrreg(RD,result);
+  trace_alu();
+  ndiv++;
+END_INSN(opSDIV)
+
+DEFINE_INSN(opSAVE)
+  uint32_t new_cwp = PSR.CWP > 0 ? PSR.CWP-1 : NWINDOWS-1;
+  TRAP_IF(WIM & (1 << new_cwp), trap_window_overflow);
+  trace("alu",0,0,pregnum(PSR.CWP,RS1),pregnum(PSR.CWP,HAS_IMMEDIATE?0:RS2),0,pregnum(new_cwp,RD));
+  uint32_t result = RS1VAL+RHSVAL;
+  setCWP(new_cwp);
+  wrreg(RD,result);
+END_INSN(opSAVE)
+
+DEFINE_INSN(opRESTORE)
+  uint32_t new_cwp = PSR.CWP == NWINDOWS-1 ? 0 : PSR.CWP+1;
+  TRAP_IF(WIM & (1 << new_cwp), trap_window_underflow);
+  trace("alu",0,0,pregnum(PSR.CWP,RS1),pregnum(PSR.CWP,HAS_IMMEDIATE?0:RS2),0,pregnum(new_cwp,RD));
+  uint32_t result = RS1VAL+RHSVAL;
+  setCWP(new_cwp);
+  wrreg(RD,result);
+END_INSN(opRESTORE)
+
+DEFINE_INSN(opBicc)
+  ncti++;
+  bool taken = check_icc[COND][PSR.icc];
+  vaddr temp = fetchPC.PC;
+  fetchPC.PC = fetchPC.nPC;
+  fetchPC.nPC = taken ? temp+DISP22 : fetchPC.nPC+1;
+END_CTI(opBicc)
+
+DEFINE_INSN(opBicca)
+  ncti++;
+  bool taken = check_icc[COND][PSR.icc];
+  vaddr temp = fetchPC.PC;
+  fetchPC.PC = fetchPC.nPC;
+  fetchPC.nPC = taken ? temp+DISP22 : fetchPC.nPC+1;
+  if(COND == iccA || !taken) // annul me
+  {
+    fetchPC.PC = fetchPC.nPC;
+    fetchPC.nPC++;
+  }
+END_CTI(opBicca)
+
+DEFINE_INSN(opFBfcc)
+  ncti++;
+  TRAP_IF(!PSR.EF,trap_fp_disabled);
+  bool taken = fpu->check_fcc(COND);
+  vaddr temp = fetchPC.PC;
+  fetchPC.PC = fetchPC.nPC;
+  fetchPC.nPC = taken ? temp+DISP22 : fetchPC.nPC+1;
+END_CTI(opFBfcc)
+
+DEFINE_INSN(opFBfcca)
+  ncti++;
+  TRAP_IF(!PSR.EF,trap_fp_disabled);
+  bool taken = fpu->check_fcc(COND);
+  vaddr temp = fetchPC.PC;
+  fetchPC.PC = fetchPC.nPC;
+  fetchPC.nPC = taken ? temp+DISP22 : fetchPC.nPC+1;
+  if(COND == fccA || !taken) // annul me
+  {
+    fetchPC.PC = fetchPC.nPC;
+    fetchPC.nPC++;
+  }
+END_CTI(opFBfcca)
+
+DEFINE_INSN(opCBccc)
+  ncti++;
+  TRAP_IF(!PSR.EC,trap_cp_disabled);
+  bool taken = false;
+  vaddr temp = fetchPC.PC;
+  fetchPC.PC = fetchPC.nPC;
+  fetchPC.nPC = taken ? temp+DISP22 : fetchPC.nPC+1;
+END_CTI(opCBccc)
+
+DEFINE_INSN(opCBccca)
+  ncti++;
+  TRAP_IF(!PSR.EC,trap_cp_disabled);
+  bool taken = false;
+  vaddr temp = fetchPC.PC;
+  fetchPC.PC = fetchPC.nPC;
+  fetchPC.nPC = taken ? temp+DISP22 : fetchPC.nPC+1;
+  if(COND == fccA || !taken) // annul me
+  {
+    fetchPC.PC = fetchPC.nPC;
+    fetchPC.nPC++;
+  }
+END_CTI(opCBccca)
+
+DEFINE_INSN(opCALL)
+  ncti++;
+  wrreg(15,4*fetchPC.PC);
+  vaddr temp = fetchPC.PC;
+  fetchPC.PC = fetchPC.nPC;
+  fetchPC.nPC = temp + DISP30;
+  trace("alu",0,0,0,0,0,pregnum(PSR.CWP,15));
+END_CTI(opCALL)
+
+DEFINE_INSN(opJMPL)
+  ncti++;
+  vaddr target = RS1VAL + RHSVAL;
+  TRAP_IF(target & 0x3, trap_mem_address_not_aligned);
+  wrreg(RD,4*fetchPC.PC);
+  fetchPC.PC = fetchPC.nPC;
+  fetchPC.nPC = target/4;
+  trace_alu();
+END_CTI(opJMPL)
+
+DEFINE_INSN(opRETT)
+  uint32_t new_cwp = (PSR.CWP+1)%NWINDOWS;
+  vaddr target = RS1VAL + RHSVAL;
+
+  TRAP_IF(!PSR.S,trap_privileged_instruction);
+  TRAP_IF(PSR.ET,trap_illegal_instruction);
+  TRAP_IF(WIM & (1 << new_cwp),trap_window_underflow);
+  TRAP_IF(target & 0x3,trap_mem_address_not_aligned);
+
+  PSR.ET = 1;
+  fetchPC.PC = fetchPC.nPC;
+  fetchPC.nPC = target/4;
+  setCWP(new_cwp);
+  PSR.S = PSR.PS;
+  ncti++;
+  trace("alu",0,0,pregnum(PSR.CWP,RS1),pregnum(PSR.CWP,HAS_IMMEDIATE?0:RS2),0,0);
+END_CTI(opRETT)
+
+DEFINE_INSN(opTicc)
+  ncti++;
+  bool taken = check_icc[COND][PSR.icc];
+  uint32_t trap_number = 0x80 + ((RS1VAL + RHSVAL) & 0x7F);
+  TRAP_IF(taken,(trap_t)trap_number);
+END_INSN(opTicc)
+
+DEFINE_INSN(opRDASR)
+  wrreg(RD,ASR[RS1]);
+  trace("alu",0,0,0,0,0,pregnum(PSR.CWP,RD));
+END_INSN(opRDASR)
+
+DEFINE_INSN(opRDPSR)
+  TRAP_IF(!PSR.S,trap_privileged_instruction);
+  wrreg(RD,PSR.get());
+  trace("alu",0,0,0,0,0,pregnum(PSR.CWP,RD));
+END_INSN(opRDPSR)
+
+DEFINE_INSN(opRDWIM)
+  TRAP_IF(!PSR.S,trap_privileged_instruction);
+  wrreg(RD,WIM);
+  trace("alu",0,0,0,0,0,pregnum(PSR.CWP,RD));
+END_INSN(opRDWIM)
+
+DEFINE_INSN(opRDTBR)
+  TRAP_IF(!PSR.S,trap_privileged_instruction);
+  wrreg(RD,TBR);
+  trace("alu",0,0,0,0,0,pregnum(PSR.CWP,RD));
+END_INSN(opRDTBR)
+
+DEFINE_INSN(opWRASR)
+  uint32_t value = RS1VAL ^ RHSVAL;
+  TRAP_IF(!PSR.S && RD != 0, trap_privileged_instruction);
+  ASR[RD] = value;
+  trace("alu",0,0,pregnum(PSR.CWP,RS1),pregnum(PSR.CWP,HAS_IMMEDIATE?0:RS2),0,0);
+END_INSN(opWRASR)
+
+DEFINE_INSN(opWRPSR)
+  uint32_t value = RS1VAL ^ RHSVAL;
+  uint32_t cwp = value & 0x1F;
+  TRAP_IF(!PSR.S,trap_privileged_instruction);
+  TRAP_IF(cwp >= NWINDOWS, trap_illegal_instruction);
+  PSR.set(value);
+  setCWP(cwp);
+  trace("alu",0,0,pregnum(PSR.CWP,RS1),pregnum(PSR.CWP,HAS_IMMEDIATE?0:RS2),0,0);
+END_INSN(opWRPSR)
+
+DEFINE_INSN(opWRWIM)
+  uint32_t value = RS1VAL ^ RHSVAL;
+  TRAP_IF(!PSR.S,trap_privileged_instruction);
+  WIM = value & ((1<<NWINDOWS)-1);
+  trace("alu",0,0,pregnum(PSR.CWP,RS1),pregnum(PSR.CWP,HAS_IMMEDIATE?0:RS2),0,0);
+END_INSN(opWRWIM)
+
+DEFINE_INSN(opWRTBR)
+  uint32_t value = RS1VAL ^ RHSVAL;
+  TRAP_IF(!PSR.S,trap_privileged_instruction);
+  TBR = (TBR & 0xFFF) | (value & ~0xFFF);
+  trace("alu",0,0,pregnum(PSR.CWP,RS1),pregnum(PSR.CWP,HAS_IMMEDIATE?0:RS2),0,0);
+END_INSN(opWRTBR)
+
+DEFINE_INSN(opUNIMP)
+  TRAP_IF(1,trap_illegal_instruction);
+END_INSN(opUNIMP)
+
+DEFINE_INSN(opFLUSH)
+  flush_icache();
+END_INSN(opFLUSH)
+
+DEFINE_INSN(opFPop1)
+  TRAP_IF(!PSR.EF,trap_fp_disabled);
+  fpu->FPop1(insn);
+  TRAP_IF(fpu->get_ftt(),trap_fp_exception);
+  nfpop++;
+  trace("alu",0,0,pregnum(NWINDOWS,RS1),pregnum(NWINDOWS,RS2),0,pregnum(NWINDOWS,RD));
+END_INSN(opFPop1)
+
+DEFINE_INSN(opFPop2)
+  TRAP_IF(!PSR.EF,trap_fp_disabled);
+  fpu->FPop2(insn);
+  TRAP_IF(fpu->get_ftt(),trap_fp_exception);
+  nfpop++;
+  trace("alu",0,0,pregnum(NWINDOWS,RS1),pregnum(NWINDOWS,RS2),0,pregnum(NWINDOWS,RD));
+END_INSN(opFPop2)
+
+DEFINE_INSN(opCPop1)
+  TRAP_IF(!PSR.EC,trap_cp_disabled);
+END_INSN(opCPop1)
+
+DEFINE_INSN(opCPop2)
+  TRAP_IF(!PSR.EC,trap_cp_disabled);
+END_INSN(opCPop2)
+
+DEFINE_INSN(opSENDAM)
+  uint32_t dest = reg(8);
+  TRAP_IF(dest >= sim->nprocs, trap_illegal_instruction);
+  spinlock_lock(&sim->procs[dest].mailbox.lock);
+  if(sim->procs[dest].mailbox.valid == 0)
+  {
+    sim->procs[dest].mailbox.valid = 1;
+    sim->procs[dest].mailbox.srcid = id;
+    sim->procs[dest].mailbox.destid = reg(8);
+    sim->procs[dest].mailbox.PC = reg(9);
+    sim->procs[dest].mailbox.arg0 = reg(10);
+    sim->procs[dest].mailbox.arg1 = reg(11);
+    sim->procs[dest].mailbox.arg2 = reg(12);
+    wrreg(8,0);
+  }
+  else wrreg(8,1);
+  spinlock_unlock(&sim->procs[dest].mailbox.lock);
+END_INSN(opSENDAM)

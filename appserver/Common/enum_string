@@ -1,0 +1,91 @@
+#!/usr/bin/perl
+
+use strict;
+
+open header,">enumstr.h";
+open source,">enumstr.cpp";
+
+print header "/* AUTO-GENERATED FILE.  ANY CHANGES WILL BE LOST! */\n\n";
+print header "#ifndef _ENUMSTR_H\n#define _ENUMSTR_H\n\n";
+print source "/* AUTO-GENERATED FILE.  ANY CHANGES WILL BE LOST! */\n\n";
+
+while(<STDIN>)
+{
+  my($line) = $_;
+  my $trim = $line;
+  $trim =~ s/^\s+//;
+
+  if(substr($trim,0,5) eq "enum ")
+  {
+    my $name = substr($trim,5);
+    $name =~ s/^\s+//;
+    $name =~ s/\s+$//;
+
+    my @fields;
+    my @values;
+    my $str = '';
+    my $lastval = -1;
+
+    while(<STDIN>)
+    {
+      ($trim) = $_;
+      $trim =~ s/^\s+//;
+      $trim =~ s/\s+$//;
+      $trim =~ s/\/\/.*//;
+
+      if($trim eq "{")
+      {
+      }
+      elsif($trim eq "};")
+      {
+        last;
+      }
+      else
+      {
+        $str .= $trim;
+      }
+    }
+
+    $str =~ s/\/\*.*\*\///;
+
+    foreach(split(/,/,$str))
+    {
+      my @tokens = split(/=/);
+      my $val = $lastval+1;
+      if(scalar @tokens == 2)
+      {
+        $val = substr($tokens[1],0,2) == '0x' ? hex($tokens[1]) : $tokens[1];
+      }
+
+      $trim = $tokens[0];
+      $trim =~ s/^\s+//;
+      $trim =~ s/\s+$//;
+
+      $fields[$val] = $trim;
+      $lastval = $val;
+    }
+
+    print header "const char* enum_str_$name(int);\n";
+    print source "const char* enum_strings_$name [] = {\n";
+
+    for(my $i = 0; $i < scalar @fields; $i++)
+    {
+      print source "  \"$fields[$i]\"";
+      print source "," if $i < scalar @fields-1;
+      print source "\n";
+    }
+
+    print source "};\n\n";
+    print source "const char* enum_str_$name(int i)\n{\n";
+    print source "  if(i >= sizeof(enum_strings_$name)/sizeof(char*))\n";
+    print source "    return \"\";\n";
+    print source "  return enum_strings_$name [i];\n}\n";
+
+    #push(@fields,$line);
+    #print "struct $name\n{\n";
+    #print @fields;
+    #print "};\n";
+  }
+}
+
+print header "\n#endif\n";

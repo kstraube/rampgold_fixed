@@ -1,0 +1,767 @@
+
+Starting:    /home/xtan/synplify/E-2010.09-1/linux_a_64/mbin/synplify
+Install:     /home/xtan/synplify/E-2010.09-1
+Date:        Wed Oct  6 15:43:37 2010
+Version:     E-2010.09-1
+
+Arguments:   -product synplify_premier_dp
+ProductType: synplify_premier_dp
+
+License checkout: synplifypremierdp
+License: synplifypremierdp from server 10.8.0.1 
+Licensed Vendor: All FPGA
+License Feature: ident
+
+
+
+unable to modify read-only option island_num_paths
+unable to modify read-only option island_num_paths
+unable to modify read-only option island_num_paths
+"mapper_prepass" is unrecognized option for current device
+"mapper_prepass" is unrecognized option for current device
+"mapper_prepass" is unrecognized option for current device
+"mapper_prepass" is unrecognized option for current device
+
+Running synthesis on typedef_struct_packed:rev_2
+
+Copying template /home/xtan/synplify/E-2010.09-1/lib/xilinx/run_ise.tcl to file /home/xtan/work/test_syn/rev_2/run_ise.tcl
+
+log file: "/home/xtan/work/test_syn/rev_2/proj_1.srr"
+
+
+
+Running HDL Compiler...
+
+
+Compiler Completed with warnings
+Return Code: 1
+Run Time:00:00:03
+
+
+Running FSM Explorer...
+
+
+Fsm Explorer Completed
+Return Code: 0
+Run Time:00:00:03
+
+
+Running prepass_property_extractor...
+
+
+prepass_property_extractor Completed
+Return Code: 0
+Run Time:00:00:02
+
+
+Running Virtex5 Mapper...
+
+
+Virtex5 Mapper Completed with warnings
+Return Code: 1
+Run Time:00:00:02
+
+Note: Opening local project RTL file '/home/xtan/work/test_syn/rev_2/proj_1.srs'
+
+Running synthesis on typedef_struct_packed:rev_2
+
+Copying template /home/xtan/synplify/E-2010.09-1/lib/xilinx/run_ise.tcl to file /home/xtan/work/test_syn/rev_2/run_ise.tcl
+
+log file: "/home/xtan/work/test_syn/rev_2/proj_1.srr"
+
+
+
+Running HDL Compiler...
+
+
+Compiler Completed with warnings
+Return Code: 1
+Run Time:00:00:04
+
+
+Running FSM Explorer...
+
+
+Fsm Explorer Completed
+Return Code: 0
+Run Time:00:00:04
+
+
+Running prepass_property_extractor...
+
+
+prepass_property_extractor Completed
+Return Code: 0
+Run Time:00:00:02
+
+
+Running Virtex5 Mapper...
+
+
+Virtex5 Mapper Completed with warnings
+Return Code: 1
+Run Time:00:00:02
+
+Note: Opening local project RTL file '/home/xtan/work/test_syn/rev_2/proj_1.srs'
+
+Usage: find [-rtl|-tech] [-<object_type>] [-hier] [-namespace techview|netlist] [in <collection>] <pattern>
+       [-regexp] [-nocase] [-flat] [-exact] [-filter <expression>]
+
+    Creates a collection satisfying the specified constraints.
+    Returns a unique identifier (a string like s:1426476) for accessing the collection.
+    Use c_print s:1426476  or  c_list s:1426476  to see the contents.
+
+    <object_type>: Specifies the type of object to be found: 
+    <object_type> = view | port | instance | pin | net 
+
+    -rtl:  Use the most recently activated RTL view or open a new one (default).
+    -tech: Use the most recently activated Technology view or open a new one.
+
+    -seq: Sequential (clocked) instances are found.  Option -inst is not needed.
+    -hier: Conducts separate search starting from each module at and below the current module.
+    -flat: Allows wildcard * to match the hierarchy separator.
+    -namespace techview|netlist
+        Modifies the scope of the Tech View search:
+            techview:  Default: uses instance and net names from .srm file
+            netlist:   Uses .sxr crossreference file to search for instance and net names in .vma file.
+    -in <collection>   Searches inside a pre-defined collection to find a subset of the collection.
+
+    <pattern> : Matches instance/net/port/symbols names against patterns, which can include the "*" and "?" wildcard characters.
+
+    -hsc <separator> : override the default . character as the hierarchy separator in <pattern>
+    -regexp:  Treats the pattern as a real regular expression rather than simple wildcard patterns.
+    -exact:   Treats the "*" and "?" wildcard characters as normal characters. Mutually exclusive with -regexp and -nocase.
+    -print:   Print results in TCL window.
+    -nocase:  Ignore case in Verilog only. VHDL modules always ignore case.
+    -help:    Prints this message
+
+    -filter <expression>  MUST BE LAST OPTION TO FIND.
+      Instructs find to filter objects based on their attributes.
+      <expression>: @<prop_name>
+      <expression>: @<prop_name> <rel_oper> <value>
+      <expression>: (@<prop_name> <rel_oper> <value>) <logical_operator> (@<prop_name> <rel_oper> <value>)
+      <rel_oper>: 	> < >= <= == != 
+      <logical_operator>:	&& || ! 
+	  Examples:
+		find -hier -inst {*reg*} -filter @clock==CLK
+		find -hier -net {*} -filter (@fanout > 4)
+		find -inst *big* -filter (!@is_black_box && @pin_count > 10)
+		find -seq * -in $all_inst_coll      Finds sequential instances inside all_inst_coll
+		find -net * -regexp {[a-b].*}
+		find -inst {reg[4]}    Use {} to protect patterns containing [] from TCL evaluation.
+See Also:  c_info, c_print, c_list, define_collection, c_union, c_intersect, c_diff, c_symdiff
+
+<<Collection has 0 objects. Search started from top-level module.>>
+
+<<Collection has 0 objects. Search started from top-level module.>>
+
+<<Collection has 0 objects. Search started from top-level module.>>
+
+<<Collection has 0 objects. Search started from top-level module.>>
+
+<<Collection has 0 objects. Search started from top-level module.>>
+
+Running synthesis on typedef_struct_packed:rev_2
+
+Copying template /home/xtan/synplify/E-2010.09-1/lib/xilinx/run_ise.tcl to file /home/xtan/work/test_syn/rev_2/run_ise.tcl
+
+log file: "/home/xtan/work/test_syn/rev_2/proj_1.srr"
+
+
+
+Running HDL Compiler...
+
+compiler exited with errors
+
+
+Job: "Compiler" terminated with error status: 2.
+See log file: "/home/xtan/work/test_syn/rev_2/proj_1.srr"
+Return Code: 2
+Run Time:00:00:03
+
+Running compile on typedef_struct_packed:rev_2
+
+Copying template /home/xtan/synplify/E-2010.09-1/lib/xilinx/run_ise.tcl to file /home/xtan/work/test_syn/rev_2/run_ise.tcl
+
+
+Running HDL Compiler...
+
+
+Compiler Completed
+Return Code: 0
+Run Time:00:00:01
+
+
+Running property_annotator...
+
+
+property_annotator Completed
+Return Code: 0
+Run Time:00:00:50
+
+Opening RTL View ...
+
+Note: Opening local project RTL file '/home/xtan/work/test_syn/rev_2/proj_1.srs'
+
+{i:ir[1:0]}
+<<Collection has 1 objects.>>
+
+{i:ir[1:0]}
+<<Collection has 1 objects.>>
+
+{i:ir[1:0]}
+<<Collection has 1 objects.>>
+
+Running synthesis on typedef_struct_packed:rev_2
+
+Copying template /home/xtan/synplify/E-2010.09-1/lib/xilinx/run_ise.tcl to file /home/xtan/work/test_syn/rev_2/run_ise.tcl
+
+log file: "/home/xtan/work/test_syn/rev_2/proj_1.srr"
+
+
+
+Running HDL Compiler...
+
+
+Compiler Completed
+Return Code: 0
+Run Time:00:00:01
+
+
+Running FSM Explorer...
+
+
+Fsm Explorer Completed
+Return Code: 0
+Run Time:00:00:04
+
+
+Running prepass_property_extractor...
+
+
+prepass_property_extractor Completed
+Return Code: 0
+Run Time:00:00:02
+
+
+Running Virtex5 Mapper...
+
+
+Virtex5 Mapper Completed
+Return Code: 0
+Run Time:00:00:02
+
+Running synthesis on typedef_struct_packed:rev_2
+
+Copying template /home/xtan/synplify/E-2010.09-1/lib/xilinx/run_ise.tcl to file /home/xtan/work/test_syn/rev_2/run_ise.tcl
+
+log file: "/home/xtan/work/test_syn/rev_2/proj_1.srr"
+
+
+
+Running HDL Compiler...
+
+
+Compiler Completed
+Return Code: 0
+Run Time:00:00:01
+
+
+Running FSM Explorer...
+
+
+Fsm Explorer Completed
+Return Code: 0
+Run Time:00:00:03
+
+
+Running prepass_property_extractor...
+
+
+prepass_property_extractor Completed
+Return Code: 0
+Run Time:00:00:02
+
+
+Running Virtex5 Mapper...
+
+
+Virtex5 Mapper Completed
+Return Code: 0
+Run Time:00:00:02
+
+Running synthesis on typedef_struct_packed:rev_2
+
+Copying template /home/xtan/synplify/E-2010.09-1/lib/xilinx/run_ise.tcl to file /home/xtan/work/test_syn/rev_2/run_ise.tcl
+
+log file: "/home/xtan/work/test_syn/rev_2/proj_1.srr"
+
+
+
+Running HDL Compiler...
+
+
+Compiler Completed
+Return Code: 0
+Run Time:00:00:01
+
+
+Running FSM Explorer...
+
+
+Fsm Explorer Completed
+Return Code: 0
+Run Time:00:00:32
+
+
+Running prepass_property_extractor...
+
+
+prepass_property_extractor Completed
+Return Code: 0
+Run Time:00:00:03
+
+
+Running Virtex5 Mapper...
+
+
+Virtex5 Mapper Completed
+Return Code: 0
+Run Time:00:00:02
+
+Running synthesis on typedef_struct_packed:rev_2
+
+Copying template /home/xtan/synplify/E-2010.09-1/lib/xilinx/run_ise.tcl to file /home/xtan/work/test_syn/rev_2/run_ise.tcl
+
+log file: "/home/xtan/work/test_syn/rev_2/proj_1.srr"
+
+
+
+Running HDL Compiler...
+
+
+Compiler Completed
+Return Code: 0
+Run Time:00:00:01
+
+
+Running FSM Explorer...
+
+
+Fsm Explorer Completed with warnings
+Return Code: 1
+Run Time:00:00:02
+
+
+Running prepass_property_extractor...
+
+
+prepass_property_extractor Completed with warnings
+Return Code: 1
+Run Time:00:00:01
+
+
+Running Virtex5 Mapper...
+
+
+Virtex5 Mapper Completed with warnings
+Return Code: 1
+Run Time:00:00:02
+
+Running timing on typedef_struct_packed:rev_2
+
+Copying template /home/xtan/synplify/E-2010.09-1/lib/xilinx/run_ise.tcl to file /home/xtan/work/test_syn/rev_2/run_ise.tcl
+
+running timing analysis on /home/xtan/work/test_syn/rev_2/proj_1.srd
+
+
+Running timing_analysis...
+
+
+timing_analysis Completed
+Return Code: 0
+Run Time:00:00:12
+
+Running synthesis on typedef_struct_packed:rev_2
+
+Copying template /home/xtan/synplify/E-2010.09-1/lib/xilinx/run_ise.tcl to file /home/xtan/work/test_syn/rev_2/run_ise.tcl
+
+log file: "/home/xtan/work/test_syn/rev_2/proj_1.srr"
+
+
+
+Running HDL Compiler...
+
+
+Compiler Completed
+Return Code: 0
+Run Time:00:00:01
+
+
+Running FSM Explorer...
+
+
+Fsm Explorer Completed
+Return Code: 0
+Run Time:00:00:11
+
+
+Running prepass_property_extractor...
+
+Mouse stroke not recognized
+
+
+prepass_property_extractor Completed
+Return Code: 0
+Run Time:00:00:18
+
+
+Running Virtex5 Mapper...
+
+
+Virtex5 Mapper Completed
+Return Code: 0
+Run Time:00:00:19
+
+<<Collection has 0 objects. Search started from top-level module.>>
+
+Usage: find [-rtl|-tech] [-<object_type>] [-hier] [-namespace techview|netlist] [in <collection>] <pattern>
+       [-regexp] [-nocase] [-flat] [-exact] [-filter <expression>]
+
+    Creates a collection satisfying the specified constraints.
+    Returns a unique identifier (a string like s:1426476) for accessing the collection.
+    Use c_print s:1426476  or  c_list s:1426476  to see the contents.
+
+    <object_type>: Specifies the type of object to be found: 
+    <object_type> = view | port | instance | pin | net 
+
+    -rtl:  Use the most recently activated RTL view or open a new one (default).
+    -tech: Use the most recently activated Technology view or open a new one.
+
+    -seq: Sequential (clocked) instances are found.  Option -inst is not needed.
+    -hier: Conducts separate search starting from each module at and below the current module.
+    -flat: Allows wildcard * to match the hierarchy separator.
+    -namespace techview|netlist
+        Modifies the scope of the Tech View search:
+            techview:  Default: uses instance and net names from .srm file
+            netlist:   Uses .sxr crossreference file to search for instance and net names in .vma file.
+    -in <collection>   Searches inside a pre-defined collection to find a subset of the collection.
+
+    <pattern> : Matches instance/net/port/symbols names against patterns, which can include the "*" and "?" wildcard characters.
+
+    -hsc <separator> : override the default . character as the hierarchy separator in <pattern>
+    -regexp:  Treats the pattern as a real regular expression rather than simple wildcard patterns.
+    -exact:   Treats the "*" and "?" wildcard characters as normal characters. Mutually exclusive with -regexp and -nocase.
+    -print:   Print results in TCL window.
+    -nocase:  Ignore case in Verilog only. VHDL modules always ignore case.
+    -help:    Prints this message
+
+    -filter <expression>  MUST BE LAST OPTION TO FIND.
+      Instructs find to filter objects based on their attributes.
+      <expression>: @<prop_name>
+      <expression>: @<prop_name> <rel_oper> <value>
+      <expression>: (@<prop_name> <rel_oper> <value>) <logical_operator> (@<prop_name> <rel_oper> <value>)
+      <rel_oper>: 	> < >= <= == != 
+      <logical_operator>:	&& || ! 
+	  Examples:
+		find -hier -inst {*reg*} -filter @clock==CLK
+		find -hier -net {*} -filter (@fanout > 4)
+		find -inst *big* -filter (!@is_black_box && @pin_count > 10)
+		find -seq * -in $all_inst_coll      Finds sequential instances inside all_inst_coll
+		find -net * -regexp {[a-b].*}
+		find -inst {reg[4]}    Use {} to protect patterns containing [] from TCL evaluation.
+See Also:  c_info, c_print, c_list, define_collection, c_union, c_intersect, c_diff, c_symdiff
+
+Running synthesis on typedef_struct_packed:rev_2
+
+Copying template /home/xtan/synplify/E-2010.09-1/lib/xilinx/run_ise.tcl to file /home/xtan/work/test_syn/rev_2/run_ise.tcl
+
+log file: "/home/xtan/work/test_syn/rev_2/proj_1.srr"
+
+
+
+Running HDL Compiler...
+
+
+Compiler Completed
+Return Code: 0
+Run Time:00:00:02
+
+
+Running FSM Explorer...
+
+
+Fsm Explorer Completed
+Return Code: 0
+Run Time:00:00:03
+
+
+Running prepass_property_extractor...
+
+
+prepass_property_extractor Completed
+Return Code: 0
+Run Time:00:00:01
+
+
+Running Virtex5 Mapper...
+
+
+Virtex5 Mapper Completed
+Return Code: 0
+Run Time:00:00:02
+
+License lost. Attempting reconnect
+
+License lost. Attempting reconnect
+
+License lost. Attempting reconnect
+
+License lost. Attempting reconnect
+
+License lost. Attempting reconnect
+
+License reconnected
+
+Running synthesis on typedef_struct_packed:rev_2
+
+Copying template /home/xtan/synplify/E-2010.09-1/lib/xilinx/run_ise.tcl to file /home/xtan/work/test_syn/rev_2/run_ise.tcl
+
+log file: "/home/xtan/work/test_syn/rev_2/proj_1.srr"
+
+
+
+Running HDL Compiler...
+
+compiler exited with errors
+
+
+Job: "Compiler" terminated with error status: 2.
+See log file: "/home/xtan/work/test_syn/rev_2/proj_1.srr"
+Return Code: 2
+Run Time:00:00:01
+
+Opening object source file /home/xtan/work/test_syn/test_ce.v
+
+Running synthesis on typedef_struct_packed:rev_2
+
+Copying template /home/xtan/synplify/E-2010.09-1/lib/xilinx/run_ise.tcl to file /home/xtan/work/test_syn/rev_2/run_ise.tcl
+
+log file: "/home/xtan/work/test_syn/rev_2/proj_1.srr"
+
+
+
+Running HDL Compiler...
+
+compiler exited with errors
+
+
+Job: "Compiler" terminated with error status: 2.
+See log file: "/home/xtan/work/test_syn/rev_2/proj_1.srr"
+Return Code: 2
+Run Time:00:00:01
+
+Opening object source file /home/xtan/work/test_syn/test_ce.v
+
+Running synthesis on typedef_struct_packed:rev_2
+
+Copying template /home/xtan/synplify/E-2010.09-1/lib/xilinx/run_ise.tcl to file /home/xtan/work/test_syn/rev_2/run_ise.tcl
+
+log file: "/home/xtan/work/test_syn/rev_2/proj_1.srr"
+
+
+
+Running HDL Compiler...
+
+compiler exited with errors
+
+
+Job: "Compiler" terminated with error status: 2.
+See log file: "/home/xtan/work/test_syn/rev_2/proj_1.srr"
+Return Code: 2
+Run Time:00:00:01
+
+Opening object source file /home/xtan/work/test_syn/test_ce.v
+
+Running synthesis on typedef_struct_packed:rev_2
+
+Copying template /home/xtan/synplify/E-2010.09-1/lib/xilinx/run_ise.tcl to file /home/xtan/work/test_syn/rev_2/run_ise.tcl
+
+log file: "/home/xtan/work/test_syn/rev_2/proj_1.srr"
+
+
+
+Running HDL Compiler...
+
+
+Compiler Completed with warnings
+Return Code: 1
+Run Time:00:00:01
+
+
+Running FSM Explorer...
+
+
+Fsm Explorer Completed
+Return Code: 0
+Run Time:00:00:01
+
+
+Running prepass_property_extractor...
+
+
+prepass_property_extractor Completed
+Return Code: 0
+Run Time:00:00:02
+
+
+Running Virtex5 Mapper...
+
+
+Virtex5 Mapper Completed with warnings
+Return Code: 1
+Run Time:00:00:02
+
+Running synthesis on typedef_struct_packed:rev_2
+
+Copying template /home/xtan/synplify/E-2010.09-1/lib/xilinx/run_ise.tcl to file /home/xtan/work/test_syn/rev_2/run_ise.tcl
+
+log file: "/home/xtan/work/test_syn/rev_2/proj_1.srr"
+
+
+
+Running HDL Compiler...
+
+compiler exited with errors
+
+
+Job: "Compiler" terminated with error status: 2.
+See log file: "/home/xtan/work/test_syn/rev_2/proj_1.srr"
+Return Code: 2
+Run Time:00:00:01
+
+Opening object source file /home/xtan/work/test_syn/test_ce.v
+
+Running synthesis on typedef_struct_packed:rev_2
+
+Copying template /home/xtan/synplify/E-2010.09-1/lib/xilinx/run_ise.tcl to file /home/xtan/work/test_syn/rev_2/run_ise.tcl
+
+log file: "/home/xtan/work/test_syn/rev_2/proj_1.srr"
+
+
+
+Running HDL Compiler...
+
+compiler exited with errors
+
+
+Job: "Compiler" terminated with error status: 2.
+See log file: "/home/xtan/work/test_syn/rev_2/proj_1.srr"
+Return Code: 2
+Run Time:00:00:01
+
+Opening object source file /home/xtan/work/test_syn/test_ce.v
+
+Running synthesis on typedef_struct_packed:rev_2
+
+Copying template /home/xtan/synplify/E-2010.09-1/lib/xilinx/run_ise.tcl to file /home/xtan/work/test_syn/rev_2/run_ise.tcl
+
+log file: "/home/xtan/work/test_syn/rev_2/proj_1.srr"
+
+
+
+Running HDL Compiler...
+
+compiler exited with errors
+
+
+Job: "Compiler" terminated with error status: 2.
+See log file: "/home/xtan/work/test_syn/rev_2/proj_1.srr"
+Return Code: 2
+Run Time:00:00:01
+
+Opening object source file /home/xtan/work/test_syn/test_ce.v
+
+Running synthesis on typedef_struct_packed:rev_2
+
+Copying template /home/xtan/synplify/E-2010.09-1/lib/xilinx/run_ise.tcl to file /home/xtan/work/test_syn/rev_2/run_ise.tcl
+
+log file: "/home/xtan/work/test_syn/rev_2/proj_1.srr"
+
+
+
+Running HDL Compiler...
+
+
+Compiler Completed with warnings
+Return Code: 1
+Run Time:00:00:01
+
+
+Running FSM Explorer...
+
+
+Fsm Explorer Completed
+Return Code: 0
+Run Time:00:00:01
+
+
+Running prepass_property_extractor...
+
+
+prepass_property_extractor Completed
+Return Code: 0
+Run Time:00:00:01
+
+
+Running Virtex5 Mapper...
+
+
+Virtex5 Mapper Completed with warnings
+Return Code: 1
+Run Time:00:00:02
+
+Running synthesis on typedef_struct_packed:rev_2
+
+Copying template /home/xtan/synplify/E-2010.09-1/lib/xilinx/run_ise.tcl to file /home/xtan/work/test_syn/rev_2/run_ise.tcl
+
+log file: "/home/xtan/work/test_syn/rev_2/proj_1.srr"
+
+
+
+Running HDL Compiler...
+
+
+Compiler Completed with warnings
+Return Code: 1
+Run Time:00:00:01
+
+
+Running FSM Explorer...
+
+
+Fsm Explorer Completed
+Return Code: 0
+Run Time:00:00:01
+
+
+Running prepass_property_extractor...
+
+
+prepass_property_extractor Completed
+Return Code: 0
+Run Time:00:00:01
+
+
+Running Virtex5 Mapper...
+
+
+Virtex5 Mapper Completed with warnings
+Return Code: 1
+Run Time:00:00:02
+
+exit status=0
+
+
+License checkin: synplifypremierdp
+

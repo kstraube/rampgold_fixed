@@ -1,0 +1,41 @@
+TESTAPPSERVER_SRC_DIR := $(BUILD_DIR)/../TestAppServer
+TESTAPPSERVER_OBJ_DIR := $(BUILD_DIR)/obj/TestAppServer
+
+TESTAPPSERVER_PROGRAMS := $(BIN_DIR)/sparc_app $(BIN_DIR)/sparc_app_debug
+TESTAPPSERVER_OBJS := sysargs.o appserver.o htif_sparc_dma.o memif_sparc_dma.o htif_x86_dma.o memif_x86_dma.o memtest.o syscall.o
+
+TESTAPPSERVER_DEBUG_OBJS := $(patsubst %.o,$(TESTAPPSERVER_OBJ_DIR)/%.d.o,$(TESTAPPSERVER_OBJS))
+TESTAPPSERVER_OBJS := $(patsubst %.o,$(TESTAPPSERVER_OBJ_DIR)/%.o,$(TESTAPPSERVER_OBJS))
+
+testappserver: $(TESTAPPSERVER_PROGRAMS)
+
+$(LIB_DIR)/libappserver.a: $(TESTAPPSERVER_OBJS)
+	@mkdir -p $(LIB_DIR)
+	ar rcs $@ $(TESTAPPSERVER_OBJS)
+
+$(LIB_DIR)/libappserver-debug.a: $(TESTAPPSERVER_DEBUG_OBJS)
+	@mkdir -p $(LIB_DIR)
+	ar rcs $@ $(TESTAPPSERVER_DEBUG_OBJS)
+
+$(BIN_DIR)/sparc_app: $(COMMON_OBJS) $(LIB_DIR)/libappserver.a $(LIB_DIR)/libcgold.a $(LIB_DIR)/libcommon.a
+	$(CXX) $(CXXFLAGS) -o $@ $(TESTAPPSERVER_SRC_DIR)/main.cpp $(COMMON_OBJS) $(LDFLAGS) -lappserver -lcgold -lpthread -lcommon
+	$(SPARC_APP_SETUID)
+
+$(BIN_DIR)/sparc_app_debug: $(COMMON_OBJS) $(LIB_DIR)/libappserver-debug.a $(LIB_DIR)/libcgold-debug.a $(LIB_DIR)/libcommon-debug.a
+	$(CXX) $(CXXFLAGS) -o $@ $(TESTAPPSERVER_SRC_DIR)/main.cpp $(COMMON_OBJS) $(LDFLAGS) -lappserver-debug -lcgold-debug -lpthread -lcommon-debug
+	$(SPARC_APP_DEBUG_SETUID)
+
+$(TESTAPPSERVER_OBJ_DIR)/%.o: $(TESTAPPSERVER_SRC_DIR)/%.cpp \
+                           $(TESTAPPSERVER_SRC_DIR)/*.h
+	@mkdir -p $(TESTAPPSERVER_OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -o $@ -c $<
+
+
+$(TESTAPPSERVER_OBJ_DIR)/%.d.o: $(TESTAPPSERVER_SRC_DIR)/%.cpp \
+                             $(TESTAPPSERVER_SRC_DIR)/*.h
+	@mkdir -p $(TESTAPPSERVER_OBJ_DIR)
+	$(CXX) $(CXXFLAGS) -DDEBUG_MODE -o $@ -c $<
+
+testappserver-clean:
+	-rm -f $(TESTAPPSERVER_PROGRAMS) $(LIB_DIR)/libappserver.a \
+           $(LIB_DIR)/libappserver-debug.a

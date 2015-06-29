@@ -1,0 +1,7 @@
+SECTIONS
+{
+  . = 0x00001000;
+  .text : { *(.init .text .fini) }
+  .data : { *(.bss .data .rodata .eh_frame .ctors .dtors .jcr) }
+  PROVIDE (_end = .); 
+}

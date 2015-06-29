@@ -1,0 +1,732 @@
+Unorganized Notes on the Virtual File System
+-------------------------------------
+Our VFS is built similarly to Linux's, mostly because I'd like to have somewhat
+easy integration with ext2 (or at the very least have our own FS that can
+integrate into Linux easily).
+
+There are four main objects in a filesystem: superblock, inode, dentry, and a
+file.  
+	- Superblock: Specific instance of a mounted filesystem.  All
+	  synchronization is done with the one spinlock.
+	- Inode: represents a specific file
+	- Dentry: in memory object, corresponding to an element of a path.  E.g. /,
+	  usr, bin, and vim are all dentries.  All have inodes.  Vim happens to be a
+	  file instead of a directory.
+	- File: represents a file opened by a process.
+
+So far, dentries are the most complicated, so here are some notes about them.
+These are probably self-consistent, but may be a bit old (or just wrong) because
+I wrote them as I put the VFS together:
+
+A dentry is just a connection between a part of a path and an inode.  We just
+want to walk from dentry to dentry, asking each to find the next part in the
+path.  When you hit a dentry that's not the end of the desired path, you ask its
+inode for the next dentry by using it's operation (lookup).
+
+lookup() takes the inode of the directory (or 0 for the root) and a dentry
+(already allocated, with the d_name and i_name filled in), and it will find the
+correct inode for the given dentry, as well as filling out any specific FS
+things in the dentry (like d_ops).  It will return 0 on failure, or the dentry
+pointer passed in on success.  Somehow the nameidata bit will be used too.  This
+will probably change a bit...  Note that lookup() needs to read the actual
+directory file and also lookup the inode off the disc, which means it will
+block.
+
+When the next dentry is a mountpoint, (e.g. /mnt/cdrom), when you ask mnt for
+cdrom, lookup() will parse it's file (a directory) and see 'cdrom' there as a child
+entry.  Then it will return cdrom's dentry, like always.
+
+But since cdrom was a mountpoint, (which you can see from the d_mount_point),
+you need to walk through the structures a bit to get the dentry of the FS rooted
+at that mountpoint to keep walking.  The VFS can handle that, so lookup()
+doesn't need to worry about it.
+
+Why are there two dentries associated with a vfsmount?  Normally, a dentry for a
+directory points to an inode that contains its members.  When a FS is mounted
+over it, we don't want to destroy that.  Instead, we mark it as a mountpoint,
+and when following, we walk into the next FS.  The mountpoint is the dentry in
+the parent mount (using the parent mount's FS superblock), and the root is the
+dentry of the mounted FS, using the FS superblock of the mounted FS.
+
+Sometimes lookup() will not be called at all.  We want to look for present
+dentries first (ones that exist in memory already, including all of those with a
+refcnt).  So we can look in the cache (currently just an SLIST, but will
+eventually be a hash table).  When hitting in the cache (hashed by dentry name,
+and probably the parent dir), we need to verify that the dentry's parent is our
+own (handled by the VFS code).  All vfsmount dentries will be in the cache,
+since they all have a refcnt (the vfsmount struct points to them).
+
+Dentries for / and pwd and whatnot have a refcnt (pointed to by fs_struct,
+vfsmounts, etc).  Anything with a pointer to it has a refcnt, so it never goes
+away.  So if we have an inode in memory, it's entire dentry path is cached,
+(just follow the parent pointers back).  Note that when a dentry's refcnt hits
+0, we do *not* deallocate (like we do with many other structures).  It will just
+be on the LRU list in the dcache system.  Likewise, every dentry points to its
+inode, which pins that inode in memory.
+
+Other refcnts: just about everything has a refcnt, and we need to be careful
+about when we want to use them and dealloc.  Some things would be a pain in the
+ass, like with the super_block refcnt.  Every dentry has a ref to the SB, but
+changing that ref every time we add or remove a dentry will probably be an
+unnecessary penalty if we can ensure all dentries of that FS are gone before
+removing the superblock through another mechanism.  We'll see.  Mostly, this
+just means we need to think about what we really want from a refcnt, and whether
+or not we want the kref / process style refcnting.
+
+Mounting:
+-------------------------------------------
+When you mount, you need to read in the super block and connect the relevant
+data structures together.  The SB is connected to the vfsmount, which is
+connected to the dentry of the mount point and the dentry of the root of the FS.
+This means when mounting the FS, we need to create the dentry for "/", which
+means we also need the inode, which needs to be read_inode()'d in.  Actually, we
+might not need to read the inode in right away - we might be able to get away
+with reading them in on-demand.
+
+All of this means that for every mount point, the SB, vfsmount, dentry, and
+inode are in memory.  Due to the way dentries link, every dentry and inode back
+up to the real root are all in memory too.  Having a mount point is like having
+a process working in that directory - the chain back up is pinned.
+
+d_subdirs:
+-------------------------------------------
+Tracking the links between objects can be tricky.  One pain is d_subdirs. Linux
+only tracks subdirectories.  We also do this.  I think the reason they do it is
+since you should be using the dcache to cache lookups, and not scan the linked
+list of children of a dentry for a specific file.  Though it is handy to know
+all of your *directory* children.  In KFS, we also track all children in a list.
+This is to make our lookups work - instead of having an actual directory file
+with name->ino mappings.
+
+KFS and metadata pinning:
+-------------------------------------------
+KFS pins all metadata ("all paths pinned").  This means that from the root mnt
+down to the lowest inode, all dentries and corresponding inodes are pinned in
+memory from creation time.   Yeah, this means we have chunks of metadata for
+files we aren't using sitting around in RAM.  We also have the *files* sitting
+around in RAM too.  Not that concerned, for now.  Plus, I don't want to reparse
+the CPIO backing store to figure out inode fields, directory names, etc.
+
+Page Cache:
+-------------------------------------------
+Every object that has pages, like an inode or the swap (or even direct block
+devices) has a page_map tracking which of its pages are currently in memory.
+This is called a struct address_space in linux, which is a confusing name.  We
+don't have all of the same fields yet, and may be doing things slightly
+differently, but the basics are the same.  Together, the page_maps and the
+functions to manipulate them make up the Page Cache.  Every page frame that is
+in a page mapping can be traced back to its page_map, via pointers in the struct
+page.  Note the page_mapping is tracked twice for a file, the f_mapping and the
+i_mapping.  We really only need the i_mapping, but this saves a couple cache
+misses.  Might go away later.
+
+As a side note, Linux's "address_space" has a great example of the power of
+their linked lists.  Their struct has a private_list head.  Due to their list
+implementation, they are able to have a generic list head for a list of any
+type (it's a struct list_head), and don't need to declare in a generic object
+(like the page_map) a specific list type (that would get used by specific
+FS's).
+
+Just because a page is in a page_map, it doesn't mean it actually has the
+data from the disc in it.  It just means that there is a physical frame
+dedicated/mapped to be a page_map's holder for a specific page of an object
+(usually a file on disc).  readpage() is called to fill that page in with what
+it is supposed to have from its backing store.
+
+This interpretation makes the meaning of "address space" make more sense.  It's
+the "address space" of the device, mapping from (file,index) -> page_frame.
+Still, calling it an address space just confuses things with the virtual memory
+address space.
+
+One of the reasons pages can be in the map without up-to-date data is due to
+concurrency issues and outstanding I/O requests.  When the page is first being
+filled up, the mapping exists but the data hasn't been brought in yet.  Other
+processes can be trying to access the same block/page/byte, and they need to
+block but to not try and schedule the operation.  
+
+So here's how a typical page fault (__handle_page_fault(), either on demand or
+populated) works on an mmap'd file at a high level.
+1. PF is on a virt address -> translated by the vm_region to a file/offset (page).
+1b. Weird permission issues?  See below!
+2. Look it up in the page_map.
+3. If the page is already there, and up-to-date, then great.  Skip to 6.  If
+there is one, but it's not up to date, skip to 5.
+4. If there is no page, get a free page, tie it (bidirectionally) to the inode
+in the page_map.
+5. Now there is a page, but it is not up to date, so call readpage().  This will
+usually block.
+6. Map that page (which has the current contents) into the address space of the
+calling process (with the appropriate permissions, RO (MAP_PRIVATE, CoW), or
+RW (MAP_SHARED).
+Below: Now if in step 1 you had a permissions issue, such as a RW fault on a CoW
+MAP_PRIVATE, you'll have to notice the type of error and the type of memory
+region, then go through a separate path: get a new page, copy the contents, and
+change the mapping.  Note, the page backing that mapping is not backed by the
+file - it's just sitting around in the virtual memory of the process.
+
+Also, if we want to use the PG_DIRTY flag, we'll need mark the regions as RO
+until we write fault, at which point we dirty the page and change it to RW.
+
+We could have multiple threads trying to fill a page in the page cache at once.
+This is handled in file_load_page().  All threads check the page cache.  If two
+threads try to add it to the page cache, only one will succeed, and the page
+will be locked (PG_LOCKED).  The one who succeeds will readpage().  The one that
+didn't will be like any other thread that is checking the page cache - it will
+see a page is there, and will check it the page is up to date.  If it isn't, it
+will try to lock the page so it can do the IO, with a few extra checks in case
+the page had been removed or was filled in while it slept.
+
+A big aspect of this is the use of lock_page() to block.  If the page is locked,
+you block until it is unlocked.  (implementation and other issues still
+pending).  Even the caller of readpage will lock after submitting the IO
+request.  This will cause the caller to sleep until the IO is done.  When the IO
+is done, that interrupt handler/thread will mark the page as up-to-date, and
+unlock the page, which will wake up any of the waiters.  The caller of
+readpage() may not be the first to wake up either.  This all means the IO system
+needs to know about marking pages as up-to-date and unlocking them.  This
+currently (Jul10) is just sitting in KFS, but can be done later either directly
+or with a callback made by
+whoever starts the IO.
+
+A note on refcnting.  When a page is added to the page cache, that's a stored
+reference.  When you lookup a page in the page cache, you get a refcnt'd
+reference back.  When you pull a page from the page cache, you also get a
+refcnt'd reference back - specifically it is the ref that was in the page map.
+
+Files with Holes
+--------------------------
+If a file has a hole, we'll still try to look up the page in the page cache.
+When that doesn't happen, we'll create and add a page, then call readpage().
+Readpage will realize there is no page on disk/backing store for that part of
+the file (since it was a hole) and just memset the page to 0.  In the future, we
+can consider getting a CoW 0-page, but that's a bit premature and a bookkeeping
+pain.
+
+This also applies to trying to write to a block beyond the EOF.  If the request
+hits the page cache and readpage(), it's because it was already checked and
+cleared in another part of the VFS, such as in generic_file_write().
+
+Files That End Before a Page Boundary
+--------------------------
+So what if we have a file that is only 1024 bytes.  When we read it in, we'll
+have a whole page added to the page cache, with the extra 3K 0'd.  When we go to
+write it back, it will write back the 1K, and ignore the rest.  But what if we
+extend the file later?  That page is already in the page cache, but the buffer
+heads aren't tracking the new 3K.  When that page gets evicted, only the 1K will
+write back.
+
+There are two ways to deal with this: 1) When we extend the file, check and see
+if it is in the middle of a page, and if so, alloc the blocks (all FS
+specific!), and adjust the BHs to map the new data.  2) Preallocate the
+remaining blocks and stitch up the BH mapping at readpage (which is in the
+specific FS).  This way, we reserve the blocks (but don't have to actually read
+them in - we just mark the buffer as dirty).  When we grow a file, we don't need
+to worry about any of these details.  We just make sure the page map has the
+page, and not whether or not it's a half-page that needs a FS-specific solution.
+I'm going with #2 for now.  Note that while the blocks are allocated, the file's
+size is still 1024B.
+
+Kref, Dentries, Inodes, and Files (or "I don't see why it's like X, but..."
+--------------------------
+There are multiple dentries pointing to an inode.  The dentries are (or will be)
+cached too, but that is irrelevant.  The dentries pin the inodes in memory.
+However, files pin inodes in memory (or they did) briefly.  After running around
+in circles a bit, I asked, why doesn't the file pin the dentry instead of the
+inode?  The answer: it is supposed to.  Linux does that, and I didn't because
+pinning the inode made more sense at the time.
+
+The heart of the issue is about understanding what files are and how they
+relate to the rest of the VFS.  A 'file' in the OS is a structure to track an
+open FS-disk-file, which is managed by the inode.  Given this, it makes sense
+that a dentry (which is a name on a path) would be pinned by the corresponding
+inode, and the file would pin the inode.  It doesn't, but it is believable.  In
+reality, there are many names (dentries) for a given disk file, and the OS file
+that you open corresponds to *one* of those names, and thus a dentry, and not to
+the inode/specific file.  You need to go through the dentry to pin the inode.
+
+In short, it's not: file -> inode -> dentry -> parent_dentry -> ...
+It's file -> dentry -> parent_dentry ->
+             |-> inode      |-> parent_inode
+Another dentry and file (both OS and disk) can point to the same inode.  If you
+don't do it this way, you can't pin up past the multi-dentry-point in the inode,
+and your system doesn't really make sense.
+
+So here is how it works: files pin dentries.  Dentries can pin other dentries,
+on up the directory hierarchy.  Independently of the files, dentries pin their
+inode.  There are many dentries per inode (or can be).  Since each dentry
+doesn't know if it is the last dentry to decref the inode, we use a kref on
+i_kref.  The inodes are storing references to the dentries, but they are the
+kref "internal" / weak references.  Even if we did decref them, we don't trigger
+anything with it.
+
+The moral of the story is that if you don't fully understand something, you are
+not in as good of a position to recommend changes or criticize as if you did
+your homework.  Not that you can't, just that you should 'do your homework.'
+
+Musings on path_lookup()
+--------------------------
+Things can get tricky with path lookup, especially with ., .., and symlinks.
+When doing a LOOKUP_PARENT on a . or .., we give the parent of whatever the path
+would have resolved too.  So /dir1/dir2/dir3/.'s parent is dir2.
+/dir1/dir2/dir3/..'s parent is dir1.  I don't think Linux does this (note the
+parent lookup is for internal kernel stuff, like when you want to edit
+metadata).  When you try to make a . or .. file, you should get some sort of
+error anyways.  We'll see how this works out.
+
+Symlinks can be a bit tricky.  We handle ours a bit differently too, especially
+regarding PARENT lookups.  Ultimately, you can do the same things in ROS that
+you can do in Linux - if you try to create a file that is a dangling symlink,
+you'll correctly create the destination file.  We handle this in
+link_path_walk().  It will return the PARENT of whatever you would resolve to -
+instead of trying to handle this in do_file_open() (which I think linux does).
+
+Also, our handling of symlinks differs a bit from linux.  Eventually, it has
+become clear we're going to need to manually port ext2, and we do some things
+differently in our core VFS already.  Might as well do more thing differently -
+like getting rid of follow_link and put_link from the FS specific sections.  Our
+FSs just need to know how to return a char* for a symname - and not do any of
+the actual link following.  Or any of the other stuff they do.  We'll see if
+that turns out to be an issue or not...
+
+Unlinking and other Link Stuff
+-------------------------
+Unlinking is just disconnecting a dentry-inode pair from the directory tree, and
+decreasing the inode's i_nlink.  Nothing else happens yet, since we need to keep
+the FS-file (controlled by the dentry/inode) so long as any OS-files have it
+open.  They have it opened via open or mmap - any way that there is a reference
+to a file, which then pins the dentry and inode.  When the OS-files close,
+eventually the dentry's refcnt hits 0.  When it does, it normally would be up
+for caching, but we can check nlinks and just drop it.  When that happens, it
+releases the inode, which will see its nlinks is 0.  That will trigger the
+underlying FS to clear out the FS-file.
+
+For directories, you can only have one hardlink to a directory - meaning you are
+only in the directory tree in one place.  However, all of your children can get
+to you by going '../'.  We'll count these as hardlinks too.  This means that
+every child increments its parent-dir's nlink.  This is the on-disk links, not
+to be confused with the dentry->d_parent and kref() business that goes on for
+the in-memory objects.  A directory cannot be removed if nlinks > 1.  If it is
+1, then you can rmdir it, which will set its nlinks to 0.  Then its inode's
+storage space will get freed when it is deleted, like any other inode.  In
+theory.
+
+Inodes: drop? delete? dealloc?
+--------------------------
+Inodes exist both in memory and on disk, but in different manners.  When a file
+(F_WHATEVER, could be DIR) exists in an FS, it'll have an inode on disk.  When
+it is time to delete that file, we call _delete_inode().  When we want to free
+the memory associated with an in-memory (VFS) inode, we call _dealloc_inode().
+
+What about drop_inode?  For now, we don't use it.  We have inode_release() in
+the VFS.  If we need an FS specific one (like for ext2), or have FS-specific
+work that needs to be done in inode_release(), we'll use it later.
+
+Either way, inode_release() is called when we no longer use the in-memory inode.
+If there are no hard links, it will delete the inode.  Either way, it will just
+free the in-memory inode (after deleting the disc version).
+
+Example: I want to unlink (rm) a file.  There are two cases: the file is already
+open (with a dentry and the inode in memory) or the file is not.  Both cases are
+handled the same way!  In either case, we eventually call do_lookup on the item
+in question, getting both a dentry and its inode read in.  (We read it in for a
+couple reasons: convenient to check the type, and we need to manipulate the
+nlink).  If a process has the file open, or even if it is sitting in the cache,
+we will get the same inode (from the inode cache, might not be implemented yet).
+When we decref the dentry and it is done, it will decref the inode.  This
+dentry's final decref will be deferred until any open files are closed.  Note,
+this requires a working dentry/inode-cache - otherwise we'll have multiple
+copies of the same FS/disk-inode (and possibly dentry).  Anyway, when this is
+done, the release function will delete the inode, then dealloc it.
+
+Another example:  We simply close a file.  When that happens, we decref the
+dentry, which decrefs the inode.  It may remain cached for a bit - not a big
+deal.  When it is finally removed, nlinks is positive, so the inode's in memory
+copy is written back (if it was dirty) and the structure is deallocated.
+
+Side notes: dentry cached inodes should be removed after their lookup in unlink.
+Also, since multiple dentries point to the same inode, it's not enough to just
+cache dentries - we need to be able to find inodes too so that we get the one
+inode regardless of which dentry we use (which may be uncached).
+
+Dentry and Inode Caches
+--------------------------
+The dentry caches dentry lookups - we need the parent and a hash of the name to
+do a lookup.  The dcache consists of a hash table for the lookups, as well as an
+extra list of entries that are unused (their kref is 0).  The dcache also caches
+negative entries - entries that were wrong.  This still speeds up future
+requests.  Most uses of the system just need to use dcache_get and dcache put.
+Not all of this is implemented yet.
+
+The inode cache is similar, though we can't just have the inodes hang off the
+dentry cache (more than one dentry points to the same inode).  We don't need to
+worry about unused lists or anything like that - once the kref hits 0, we're
+done and we can rip it out of the hash.
+
+Both hashes hang off the superblock, with concurrent access protected by locks
+in the SB.
+
+The dentry cache is the weirdest of them all - for normal entries, its key and
+value are the same thing.  The actual hashing of a dentry is done by the qstr
+value, and to determine equality, we need to compare parents (compared to the
+inode cache, where the only thing that matters is the i_ino).  Put another way,
+we need elements of the whole dentry to get a unique key (d_parent and d_name).
+
+As stated above, the dcache also caches negative entries.  This is to prevent a
+lookup on disk.  These negative entries are in the dcache and on the LRU list
+(their refcnt is 0, the are not USED).  When we dcache_get, we don't bother with
+returning the actual dentry (after increffing) and then decref it again.
+Instead, we just return the negative result (via the query dentry,
+incidentally).
+
+Freeing of dentries happens in one of two ways: call __dentry_free() directly,
+which is appropriate when you have the only copy (like in do_lookup()), or it
+will get freed when the dcache gets reaped (the LRU entries are freed).  When it
+is decref'd, it simply goes into a state where it is ready to be reaped, but
+kept around for future lookups - most usages throughout the vfs can just decref
+when they are done using it.
+
+One complication is cached negative dentries.  These are only referenced once
+(in the dcache), so they can get __dentry_free()d directly.  This gets tricky
+with rmdir and unlink.  Initially, those functions marked the dentry as negative
+and unused, and would let them stay in the dcache (returning negative results on
+future lookups).  The problem with this is that now the dcache could have a
+negative dentry that was a real, formerly used dentry - one with a refcnt that
+needs to be decref'd and released.  
+
+There are two solutions: one is to change the dcache to not assume that negative
+entries are unreferenced (which also means on the LRU).  The other is to just
+remove the dentry from the dcache on rmdir/unlink.  It won't be negative - and
+that won't matter, since it is un-lookup-able.  And it will die nicely when it
+gets decref'd.  All we'll do is add a DENTRY_DYING flag, and dentry_release()
+will avoid LRU and unusing it.  The dcache can continue to assume that negative
+entries are unused/LRU/dentry_freeable/ref==0, and not worry about calling
+kref_put().
+
+X: Buffer Cache, Page Cache, Buffer Heads, WTH?
+-------------------------------
+X.1: Page vs Buffer Cache
+--------------------
+So we discussed the page cache, but as described, it does not satisfy all of
+our disk caching needs.  Traditionally, there would also be a 'buffer cache.'
+Buffers usually refer to memory used to hold data from the disk (or network).
+I can think of a couple different ways someone could think of the buffer
+cache, and to understand them, we first need to understand what we need to be
+caching.
+
+There are two main types of FS data: file data and metadata.  This metadata
+is FS-specific data accessed by the VFS to get to a file's contents.  For
+example, the superblock, inodes, inode indirect blocks, and to a certain
+extent the directory's contents are all metadata.  There isn't an FS file (not
+to be confused with an OS file) that corresponds to this data, but it needs to
+be read in and cached.  Furthermore, this cache needs to be managed and
+written back when dirty.  Note that file data can be broken up into two
+different types: read()/write() data and mmap'd data.  When people talk about
+buffer caches versus page caches, they are talking about these two different
+types of file data (at least NetBSD did
+http://www.usenix.org/event/usenix2000/freenix/full_papers/silvers/silvers_html/).
+
+A very simple buffer cache would include anything *ever* read from disk.  It
+would then get copied into the page cache in PGSIZE chunks for the page cache.
+This would suck, since we now have two or three copies.  We obviously want to
+use the page cache for both mmap() and read/write().  It's not clear about the
+metadata.
+
+Another usage of a buffer cache would be to cache only the disk blocks needed
+for metadata.  I think this is what Linux did before it unified its buffer and
+page caches (implied in UTLK).  The main issue with this is that you have two
+different systems for managing essentially similar data - we only want to deal
+with flushing, syncing, and writebacks of one subsystem, not in multiple
+different subsystems.
+
+The solution is to use the page cache to cache the metadata blocks' buffers.
+We do this by having the block device be 'mapped' (but not read) in PGSIZE
+chunks through its own struct page_mapping (a.k.a. struct address_space in
+Linux).  This way, both files and the block device are mapped in PGSIZE chunks
+via the same page_mapping structure, and will be managed by the same code.
+
+Sort of.  We don't actually read in PGSIZE chunks for the block buffer cache.
+If blocks will be in the bdev's cache, then they will be adjacent and on the
+same page.  It is possible some adjacent blocks (which would be on the same
+page) are not both metadata.
+
+A more accurate way to describe what we do is that metadata blocks are copied
+into a 'buffer cache' that is mapped and managed similarly to the page cache.
+Pages are made of buffer heads, which hold data, and the reclaiming of pages of
+memory from either the page cache or the buffer cache will use the same code -
+since they are both just made of buffer pages.
+
+X.2: Mapping Blockdev Data vs File Data
+--------------------
+An important distinction between file data (as managed by an inode) and the
+bdev is that PGSIZE chunks of data for the bdev *must* be made of contiguous
+disk blocks.  Ideally, file data is also contiguous/sequential, but that is
+not always the case - hence the need for the inode's block pointers.  This
+means that the chunk at the bottom of the page_mapping radix tree is a page,
+and on that page there may be several buffers, holding the data of
+nonsequential disk blocks - but that not all pages are like this.  The bdev
+pages are made up of sequential blocks due to the very nature of what we are
+mapping; there's no inode abstraction in between.
+
+There are a couple ways we could handle this.  We adopt the Linux approach of
+using something called a buffer head (BH), which describes the mapping from
+in-memory buffer to block device / block number.  These are slab-allocated,
+and exist for each buffer of a page.  The page itself points to the first of
+its BHs, all of which exist in a LL.  The maximum number of them is determined
+by PGSIZE / blocksize.  Whenever there is a page in the page cache (meaning, in
+a page_mapping), that is up to date, it will have a BH.
+
+Another way would be to not have BHs at all, and just figure out (at
+operation-time) what the n blocks on disk are for any given page, and submit
+the IO operations for those blocks.  The BHs serve as a cache of that info.
+They also serve as a location to store data about the mapping, such as whether
+it is dirty or not, whether the data is up to date or not (has it been read
+in), etc.  The caching ought to be rather beneficial, since it means we do not
+need to access the disk-inode and indirect blocks whenever we want to perform
+an operation (which may be frequent - imagine the periodic writeback of an
+mmap'd file undergoing writes).  The per-buffer dirty tracking will also help:
+no need to write unrelated blocks if only one is edited (though this will not
+help with mmap(), since we don't usually know which part of the page is
+written).
+
+X.4: Do we always need BHs?
+------------------
+But what about those pages made up of contiguous blocks?  We don't have a
+bunch of independent, non-sequential blocks that we need to map.  Do we need a
+bunch of BHs for that?  Do we need any?  It really seems excessive to break it
+up into separate buffers for no reason.  At the other extreme, we could get by
+without having a BH at all, though this gets back to the other issue of
+caching.  What we do (or will do) is have one BH for the entire page of
+contiguous blocks.  If the page is a "buffer page," in Linux terms (meaning it
+has separate buffers), it will have n BHs in a LL.  Either way, we'll always
+have the mapping handy.  We wouldn't need to re-verify the contiguous nature of
+the blocks anyways, since the fact that the page was up to date and didn't need
+a BH would mean it was contiguous.  Further benefits to using the one BH
+include: 1) we are likely to make BHs be the unit of IO *submission*, and having
+one handy will simplify that code. 2) some code paths within the VFS may get BHs
+as a return value, which they can then dirty.  Always having a BH makes this
+easier (no need to find out if it's a buffer page, then decide how to dirty it).
+
+Another compliation with this is certain code will want a block in the middle
+of a page (very common for metadata).  That code will get the BH for the
+entire page back.  It will need to determine the starting block and then the
+offset of the block it wants.  Note, this usage of the BHs is finding the
+buffer corresponding to a block number.  The BH is a bidirectional mapping
+between buffers and blockdev:blocknum.  These calculations are a minor
+complication, but easy enough to do, and will probably be worth it.  The
+tradeoff is against having multiple BHs, which would mean multiple block IO
+requests for writing a single page (and writing the whole page may be a common
+operation).
+
+X.3: What about opening a blockdev as a file?
+--------------------
+Basically, don't do it for now.  The way we actually do things is a buffer cache
+page is "up to date", but has no BHs or data until a specific block is
+requested.  This is because we don't always know if all the blocks mapped by a
+page are actually metadata blocks.  If they aren't we'll have issues where we
+read in extra blocks that exist in both a file's page cache and the block
+device's buffer cache.
+
+A safe invariant is that a given block will only ever be in one cache: either a
+file's page mapping or the buffer cache's page mapping.  When these blocks are
+freed, we'll need to rip them out of their mapping (and possibly flush them).
+
+There is one easy way to avoid this: don't open a bdev file if a file system is
+mounted on top of it.  If you do, don't be surprised about inconsistencies.
+Ideally, the FS will never leave the actual disk in an inconsistent state, but
+the bdev's page cache could read things at different times and get some weird
+results.  Just don't do this (for now - not like I plan to make this possible
+any time soon).
+
+Could we use the same buffers for both the blockdev-file page mapping and the
+inode-file page mapping?  No - because the inode-file has the inode
+indirection in between, which means a PGSIZE chunk of the file might not be
+contiguous (as mentioned above).
+
+We could have tried to avoid this bdev file problem by having the page mapping
+radix trees point to a set of BHs that describes that page worth of buffers,
+so that the bdev and an inode pointing to the same data will use the same
+buffers and BHs.  That won't work, since the files buffers/blocks aren't in
+the same order as they are on disk within a page.  Instead, we'd need to have
+the page mapping go down to the FS's blocksize granularity, not to PGSIZE, so
+that we could have independent leaves point to wherever they want.  This would
+push the specific block device's blocksize into the VFS (which I don't like).
+
+But the blocksize-infecting-the-VFS alone isn't too bad.  The real issue is
+what is at the end of the page mapping.  Is it a page or a buffer/BH?  We want
+pages for two related reasons: higher levels of the kernel's IO systems deal
+with pages:
+1. mmap().  Good old mmap() requires at least a page of contiguous block
+buffers, so that the physical page frame can be mapped directly into a
+process's address space.
+2. Fast IO.  We want to use page remapping for fast IO.  This means that IO
+has to be in PGSIZE chunks - not blocksize chunks.
+
+x.4: Managing Dirty Buffers
+--------------------
+Many (some/all?) of the block functions will return a BH to describe the
+mapping.  One reason for doing this (mentioned above) is to allow the caller
+to manage if a buffer is dirty or not.  The tracking of dirty pages is done by
+the page cache.  The dirtying is done by the caller; it can simply mark the BH
+dirty and forget about it.  The writeback is handled usually by the page cache
+or is triggered by an FS event.  Eventually, we'll have a kernel thread that
+periodically writes dirty buffers back to disk.  Processes can also do this by
+calling fsync.  FSs themselves will trigger syncs of metadata.  This will come
+from having dirty SBs and inodes in the VFS.
+
+Note, the issue of whether or not we pin metadata blocks, such as the inode's
+indirect blocks (or other related blocks), in the page cache is independent of
+all these issues.  If they are not cached / pinned, we would just have to
+block and reread the inode's structures back into memory and proceed (for
+instance, we'd do this when identifying blocks for a page mapping on a file
+read).  The reason we wouldn't want to pin them is to save memory.
+
+x.5: Reference Counting BHs and Pages
+--------------------
+There are a lot of complications with this, and if there is a good reason,
+we'll change this later.
+
+x.5.1: Basics
+-----------
+So we talk about passing around BHs, both when submitting IO ops and when
+returning from things like get_buffer().  However, currently, we do not kref
+or reference count BHs in any way.  Instead, we kref pages.  We do this (for
+now) for a couple reasons:
+1) Pages are the unit of memory management in the kernel.  Higher levels of
+the kernel will pin/incref the page (such as in an mmap()).
+2) BHs hang off of a page, but exist only to be expressive about the
+management of the buffers on the page.  It's not like how a file hangs off a
+dentry, where the dentry doesn't know (or care) about the file.
+3) We already refcount pages.  While we could do the same for the BHs, it is a
+bit redundant.  Any place that would be kreffing the BH can just kref the
+whole page.  Code that receives a BH as a return value is actually getting a
+page under the covers (though should use put_buffer() to drop its reference).
+
+x.5.2: How we refcnt pages in a page mapping
+-----------
+When a page is in the page cache, we give it one kref.  Whenever a function or
+subsystem is using one of these pages (IO, using the data, etc), there needs
+to be a kref.  When it is time to remove the page from the page mapping, the
+code needs to remove it from the radix tree, then kref_put it.  When the final
+user is done with it (ideally, there is none, but we need to handle the case)
+the release function will clean up the page - including freeing its BHs.
+
+This does suck in that we could be removing an item from the page cache while
+it is being used, violating some LRU policy.  The actual decision to remove it
+should use those policies (when possible); the kreffing is simply to avoid
+issues from race conditions.  (A reader starts using a page right before it is
+ripped from the mapping).
+
+x.5.3: More issues with Evictions
+-----------
+One issue with this is that dirty pages/buffers will need to be written back.
+If someone tries to read while the page is removed from the page_mapping, but
+before it is written back, they could get an old version if the read happens
+before the write.  This is only an issue if the page is dirty.  One option
+would be to writeback the page/buffer, then later remove it from the page
+cache when it is read.  There's issues with concurrent writers, though if that
+happens, we probably don't really want to remove it (it was LRU).  Note this
+is an issue regardless of whether or not BHs are refcounted.  Also, this is
+not an issue for when we kick a dentry/inode out of the cache - there should
+be no one else trying to use it (since their refcnt was 0).  This is just a
+concern when the system runs low on memory and wants to reclaim potentially
+memory held by caches.
+
+Also note that writeback of pages will happen regardless of eviction plans
+(fsync, every n sec, etc).
+
+This refcounting pattern is very similar to unlinking, where you can continue
+to access a file once it is removed from the directory.  The difference here
+is that future requests will get the same object (the page), unlike in the FS,
+where you get ENOENT.  The page mapping is a cache, and you need to get the
+same old data that was in there before the eviction.
+
+A final issue is when the VFS aggressively pins blockdev (metadata) buffers.
+Ideally, we'd like to be able to expel pages/buffers even if they are
+refcnt'd.  The subsystems will always want to keep stuff in RAM.  This
+also/especially applies to mmap().  One solution would be to keep them in RAM,
+but have the BH keep track of who is holding its reference.  Then we could
+unmap the page, which would need to get read back in on its next access.  We'd
+need (or ought to have) some sort of callbacks.  This will get solved later
+when we deal with unmapping mmap'd files, since it is the same problem - just
+with different code and actors.
+
+x.5.4: What about buffers inside pages?
+-----------
+For a while, I thought about refcounting BHs/buffers.  The issue that drives
+it is the buffer cache (block dev page mapping holding metadata blocks of a
+FS).  We had been operating on the cache in page-sized chunks, which
+erroneously was reading in blocks adjacent to metadata blocks.  This would
+have been an issue when we write back pages that have dirty blocks; blocks
+were erroneously in the metadata cache and would overwrite potentially
+file-realted blocks that were in an incoherent cache (the file/inode's page
+mapping).
+
+We broke the bdev's buffer cache up into smaller BHs, so that only metadata
+blocks get read in, but we eventually will have to get rid of a metadata block
+(and not the entire page from the cache) (ex: an inode is removed from the
+disk - its indirect blocks need to go, and they could be next to anything on
+disk).  The desire for the BH refcnt came from wanting to rip the BHs out of
+the list when it was time to evict them from the cache (in case they became
+file blocks later).  It isn't clear what the best way to do this is.  Probably
+we'd have all users refcnt the BHs, which refcnt the pages.  However, some
+users (like mmap and the file page cache) operate in page chunks - so this
+would require them to incref and decref the BHs.  Triggering the page reclaim
+might also be tricky.  One option would be to just rip a page from the cache,
+callback to whoever has it loaded so they fault it back in later, and
+sleep-block everyone who interferes with the operation.  Yikes.
+
+Another option was to forget about the BH <-> page crap for the buffer cache,
+and just have a standalone buffer cache with BHs as its unit of operation
+(instead of a page), and replicate the algorithms/code for the buffer cache.
+There is still a notion of BHs in a page, and page_release() / page_free()
+would probably have to be a little different since its page isn't really a
+PG_BUFFER (but it really is).
+
+Instead, here's what we do: we refcnt at page granularity, since all users can
+be considered users of a page.  While it's not fine-grained, it does represent
+the idea that someone doesn't want the page to be freed.  It's similar to
+having a dentry be the refcnt source when someone really wants the inode/file.
+When we want to remove a page from the block buffer cache, all we do is mark
+it as not dirty and not up-to-date.  Now, whenever the page gets evicted from
+the cache, we only write back those block buffers that are dirty, so the
+recently evicted block will not be written back.  If we attempt to read the
+block in the future (perhaps it is reallocated as a metablock), then the BH is
+still there for the mapping, but is simply not up to date.  The code already
+knows how to handle this (since it could happen during a race condition), and
+it will simply read the buffer back in.  This new reading is necessary, since
+it is possible that the block was used for file IO in between the uses of it
+as a metablock.
+
+If there are more than one thread operating on a block buffer in the page
+cache, then at the level of the cache, there is a race.  One could be marking
+it as not dirty while another is dirtying it, etc.  However, no one should be
+removing a buffer (aka, deallocating a block) while it is in use.  This sort
+of concurrency problem should be sorted higher in the software stack (like at
+the inode).
+
+On a similar note, no one should ever remove a block's buffer from the
+metadata buffer cache if it is dirty.  When those removals happen, it means
+the block should be dealloced on the block device - meaning no one cares what
+happens to it.  It's not meant to have data preserved.
+
+x.6: What about Directories?  Inodes or metadata?
+--------------------
+Directories have inodes that have blocks scattered around the disk.  The blocks
+making up the body of a directory are not sequential, like when you read blocks
+from a bdev.  If you wanted a "page" of a directory, then you'd need to use the
+i_mapping (page cache of a file) to access it, like any other file.
+
+However, we don't want a page of a directory - at least not yet.  The main
+reason we can get away with this is due to the lack of a mmap() or a desire to
+page-remap for directory-contents IO.  It's all for the kernel's internal use.
+At no point does anyone call generic_file_read() or _write() on it.
+
+That being said, we treat the blocks of a directory as metadata blocks.  We do
+figure out which blocks they are by walking the inode (also made of metadata
+blocks), but don't bother to set up a page map for the directory itself.  We
+just use the inode to figure out which metadata blocks we want, then read them
+in (out of the blockdev's page cache).
+
+Note that userspace issues reads on the directory.  This is mostly a convenience
+thing (or an inconvenience thing), which just ends up being a wrapper around
+readdir() (via generic_dir_read()).

@@ -1,0 +1,20 @@
+# Date: Tue Nov 11 10:49:28 2008
+SET addpads = False
+SET asysymbol = True
+SET busformat = BusFormatAngleBracketNotRipped
+SET createndf = True
+SET designentry = Verilog
+SET device = xc5vlx50t
+SET devicefamily = virtex5
+SET flowvendor = Foundation_iSE
+SET formalverification = False
+SET foundationsym = False
+SET implementationfiletype = Ngc
+SET package = ff1136
+SET removerpms = False
+SET simulationfiles = Behavioral
+SET speedgrade = -1
+SET verilogsim = True
+SET vhdlsim = False
+SET workingdirectory = /home/xtan/work/sparcmt/lib/sim/debug/ml505_chipscope/
+

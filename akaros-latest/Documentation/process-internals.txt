@@ -1,0 +1,876 @@
+process-internals.txt
+Barret Rhoden
+
+This discusses core issues with process design and implementation.  Most of this
+info is available in the source in the comments (but may not be in the future).
+For now, it's a dumping ground for topics that people ought to understand before
+they muck with how processes work.
+
+Contents:
+1. Reference Counting
+2. When Do We Really Leave "Process Context"?
+3. Leaving the Kernel Stack
+4. Preemption and Notification Issues
+5. Current_tf
+6. Locking!
+7. TLB Coherency
+8. TBD
+
+1. Reference Counting
+===========================
+1.1 Basics:
+---------------------------
+Reference counts exist to keep a process alive.  We use krefs for this, similar
+to Linux's kref:
+- Can only incref if the current value is greater than 0, meaning there is
+  already a reference to it.  It is a bug to try to incref on something that has
+  no references, so always make sure you incref something that you know has a
+  reference.  If you don't know, you need to get it from pid2proc (which is a
+  careful way of doing this - pid2proc kref_get_not_zero()s on the reference that is
+  stored inside it).  If you incref and there are 0 references, the kernel will
+  panic.  Fix your bug / don't incref random pointers.
+- Can always decref.
+- When the decref returns 0, perform some operation.  This does some final
+  cleanup on the object.
+- Process code is trickier since we frequently make references from 'current'
+  (which isn't too bad), but also because we often do not return and need to be
+  careful about the references we passed in to a no-return function.
+
+1.2 Brief History of the Refcnt:
+---------------------------
+Originally, the refcnt was created to keep page tables from being destroyed (in
+proc_free()) while cores were still using them, which is what was happens during
+an ARSC (async remote syscall).  It was then defined to be a count of places in
+the kernel that had an interest in the process staying alive, practically just
+to protect current/cr3.  This 'interest' actually extends to any code holding a
+pointer to the proc, such as one acquired via pid2proc(), which is its current
+meaning.
+
+1.3 Quick Aside: The current Macro:
+---------------------------
+current is a pointer to the proc that is currently loaded/running on any given
+core.  It is stored in the per_cpu_info struct, and set/managed by low-level
+process code.  It is necessary for the kernel to quickly figure out who is
+running on its code, especially when servicing interrupts and traps.  current is
+protected by a refcnt.
+
+1.4 Reference Counting Rules:
+---------------------------
++1 for existing.
+- The fact that the process is supposed to exist is worth +1.  When it is time
+  to die, we decref, and it will eventually be cleaned up.  This existence is
+  explicitly kref_put()d in proc_destroy().
+- The hash table is a bit tricky.  We need to kref_get_not_zero() when it is
+  locked, so we know we aren't racing with proc_free freeing the proc and
+  removing it from the list.  After removing it from the hash, we don't need to
+  kref_put it, since it was an internal ref.  The kref (i.e. external) isn't for
+  being on the hash list, it's for existing.  This separation allows us to
+  remove the proc from the hash list in the "release" function.  See kref.txt
+  for more details.
+
++1 for someone using it or planning to use it.
+- This includes simply having a pointer to the proc, since presumably you will
+  use it.  pid2proc() will incref for you.  When you are done, decref.
+- Functions that create a process and return a pointer (like proc_create() or
+  kfs_proc_create()) will also up the refcnt for you.  Decref when you're done.
+- If the *proc is stored somewhere where it will be used again, such as in an IO
+  continuation, it needs to be refcnt'd.  Note that if you already had a
+  reference from pid2proc(), simply don't decref after you store the pointer.
+
++1 for current.
+- current counts as someone using it (expressing interest in the core), but is
+  also a source of the pointer, so its a bit different.  Note that all kref's
+  are sources of a pointer.  Technically, to even use 'current', we should kref
+  it and pass it around as a proc.  We don't for performance reasons.  When we
+  are running on a core that has current loaded, the ref is both for its usage
+  as well as for being the current process.
+- You have a reference from current and can use it without refcnting, but
+  anything that needs to eat a reference or store/use it needs an incref first.
+  To be clear, your reference is *NOT* edible.  It protects the cr3, guarantees
+  the process won't die, and serves as a bootstrappable reference.
+- Specifically, if you get a ref from current, but then save it somewhere (like
+  an IO continuation request), then clearly you must incref, since it's both
+  current and stored/used.
+- If you don't know what might be downstream from your function, then incref
+  before passing the reference, and decref when it returns.  We used to do this
+  for all syscalls, but now only do it for calls that might not return and
+  expect to receive reference (like proc_yield).
+
+All functions that take a *proc have a refcnt'd reference, though it may not be
+edible (it could be current).  It is the callers responsibility to make sure
+it'd edible if it necessary.  It is the callees responsibility to incref if it
+stores or makes a copy of the reference.
+
+1.5 Functions That Don't or Might Not Return:
+---------------------------
+Refcnting and especially decreffing gets tricky when there are functions that
+MAY not return.  proc_restartcore() does not return (it pops into userspace).
+proc_run() might not return, if the core it was called on will pop into
+userspace (if it was a _S, or if the core is part of the vcoremap for a _M).
+
+Functions that MAY not return will "eat" your reference *IF* they do not return.
+This means that you must have a reference when you call them (like always), and
+that reference will be consumed / decref'd for you if the function doesn't
+return.  Or something similarly appropriate.
+
+Arguably, for functions that MAY not return, but will always be called with
+current's reference (proc_yield()), we could get away without giving it an
+edible reference, and then never eating the ref.  Yield needs to be reworked
+anyway, so it's not a bit deal yet.
+
+We do this because when the function does not return, you will not have the
+chance to decref (your decref code will never run).  We need the reference when
+going in to keep the object alive (like with any other refcnt).  We can't have
+the function always eat the reference, since you cannot simply re-incref the
+pointer (not allowed to incref unless you know you had a good reference).  You'd
+have to do something like p = pid2proc(p_pid);  It's clunky to do that, easy to
+screw up, and semantically, if the function returns, then we may still have an
+interest in p and should decref later.
+
+The downside is that functions need to determine if they will return or not,
+which can be a pain (a linear time search when running an _M, for instance,
+which can suck if we are trying to use a broadcast/logical IPI).
+
+As the caller, you usually won't know if the function will return or not, so you
+need to provide a consumable reference.  Current doesn't count.  For example,
+proc_run() requires a reference.  You can proc_run(p), and use p afterwards, and
+later decref.  You need to make sure you have a reference, so things like
+proc_run(pid2proc(55)) works, since pid2proc() increfs for you.  But you cannot
+proc_run(current), unless you incref current in advance.  Incidentally,
+proc_running current doesn't make a lot of sense.
+
+As another example, __proc_startcore() will take your reference and store it
+in current.  Since it is used by both the __startcore and the interrupt return
+paths (proc_restartcore() now, formerly called proc_startcore()), we're
+currently going with the model of "caller makes sure there is a ref for
+current".  Check its comments for details.
+
+1.6 Runnable List:
+---------------------------
+Procs on the runnable list need to have a refcnt (other than the +1 for
+existing).  It's something that cares that the process exists.  We could have
+had it implicitly be refcnt'd (the fact that it's on the list is enough, sort of
+as if it was part of the +1 for existing), but that complicates things.  For
+instance, it is a source of a reference (for the scheduler) and you could not
+proc_run() a process from the runnable list without worrying about increfing it
+before hand.  Remember that proc_run() might consume your reference (which
+actually turns into a current reference, which is later destroyed by decref in
+abandon_core()).
+
+1.7 Internal Details for Specific Functions:
+---------------------------
+proc_run(): makes sure enough refcnts are in place for all places that will
+install current.  This also makes it easier on the system (one big incref(n),
+instead of n increfs of (1) from multiple cores).  In the off chance current was
+already set for a core receiving the kernel message, __startcore will decref.
+Also note that while proc_run() consumes your reference, it's not actually
+decreffing, so there's no danger within proc_run() of the process dying /
+__proc_free()ing.
+
+__proc_startcore(): assumes all references to p are sorted.  *p is already
+accounted for as if it was current on the core startcore runs on. (there is only
+one refcnt for both *p and current, not 2 separate ones).
+
+proc_destroy(): it might not return (if the calling core belongs to the
+process), so it may eat your reference and you must have an edible reference.
+It is possible you called proc_destroy(current).  The cleanup of the current
+will be its own decref, so you need to have a usable/real reference (current
+doesn't count as an edible reference).  So incref before doing that.  Even if p
+== current, proc_destroy() can't tell if you sent it p (and had a reference) or
+current and didn't.
+
+proc_yield(): this never returns, so it eats your reference.  It will also
+decref when it abandon_core()s.
+
+__proc_give_cores() and friends: you call this while holding the lock, but it is
+possible that your core is in the corelist you gave it.  In this case, it will
+detect it, and return a bool signalling if an IPI is pending.  It will not
+consume your reference.  The reasoning behind this is that it is an internal
+function, and you may want to do other things before decreffing.  There is also
+a helper function that will unlock and possibly decref/wait for the IPI, called
+__proc_unlock_ipi_pending().  Use this when it is time to unlock.  It's just a
+helper, which may go away.
+
+abandon_core(): it was not given a reference, so it doesn't eat one.  It will
+decref when it unloads the cr3.  Note that this is a potential performance
+issue.  When preempting or killing, there are n cores that are fighting for the
+cacheline to decref.  An alternative would be to have one core decref for all n
+cores, after it knows all cores unloaded the cr3.  This would be a good use of
+the checklist (possibly with one cacheline per core).  It would take a large
+amount of memory for better scalability.
+
+1.8 Core Request:
+---------------------------
+core_request() is run outside of the process code (for now), though it is fairly
+intricate.  It's another function that might not return, but the reasons for
+this vary:
+	1: The process is moving from _S to _M so the return path to userspace won't
+	happen (and sort of will on the new core / the other side), but that will
+	happen when popping into userspace.
+	2: The scheduler is giving the current core to the process, which can kick
+	in via either proc_run() or __proc_give_cores().
+	3: It was a request to give up all cores, which means the current core will
+	receive an IPI (if it wasn't an async call, which isn't handled yet).
+
+For these reasons, core_request() needs to have an edible reference.
+
+Also, since core_request calls functions that might not return, there are cases
+where it will not be able to call abandon_core() and leave process context.
+This is an example of why we have the fallback case of leaving process context
+in proc_startcore().  See the section below about process context for more
+information.
+
+Eventually, core_request() will be split better, probably with the brutal logic
+in process.c that would call out some functions in resource.c that actually make
+choices.
+
+1.9 Things I Could Have Done But Didn't And Why:
+---------------------------
+Q: Could we have the first reference (existence) mean it could be on the runnable
+list or otherwise in the proc system (but not other subsystems)?  In this case,
+proc_run() won't need to eat a reference at all - it will just incref for every
+current it will set up.
+
+A: No: if you pid2proc(), then proc_run() but never return, you have (and lose)
+an extra reference.  We need proc_run() to eat the reference when it does not
+return.  If you decref between pid2proc() and proc_run(), there's a (rare) race
+where the refcnt hits 0 by someone else trying to kill it.  While proc_run()
+will check to see if someone else is trying to kill it, there's a slight chance
+that the struct will be reused and recreated.  It'll probably never happen, but
+it could, and out of principle we shouldn't be referencing memory after it's
+been deallocated.  Avoiding races like this is one of the reasons for our refcnt
+discipline.
+
+Q: Could proc_run() always eat your reference, which would make it easier for
+its implementation?
+
+A: Yeah, technically, but it'd be a pain, as mentioned above.  You'd need to
+reaquire a reference via pid2proc, and is rather easy to mess up.
+
+Q: Could we have made proc_destroy() take a flag, saying whether or not it was
+called on current and needed a decref instead of wasting an incref?
+
+A: We could, but won't.  This is one case where the external caller is the one
+that knows the function needs to decref or not.  But it breaks the convention a
+bit, doesn't mirror proc_create() as well, and we need to pull in the cacheline
+with the refcnt anyways.  So for now, no.
+
+Q: Could we make __proc_give_cores() simply not return if an IPI is coming?
+
+A: I did this originally, and manually unlocked and __wait_for_ipi()d.  Though
+we'd then need to deal with it like that for all of the related functions, which
+doesn't work if you wanted to do something afterwards (like schedule(p)).  Also
+these functions are meant to be internal helpers, so returning the bool makes
+more sense.  It eventually led to having __proc_unlock_ipi_pending(), which made
+proc_destroy() much cleaner and helped with a general model of dealing with
+these issues.  Win-win.
+
+2. When Do We Really Leave "Process Context"?
+===========================
+2.1 Overview
+---------------------------
+First off, it's not really "process context" in the way Linux deals with it.  We
+aren't operating in kernel mode on behalf of the process (always).  We are
+specifically talking about when a process's cr3 is loaded on a core.  Usually,
+current is also set (the exception for now is when processing ARSCs).
+
+There are a couple different ways to do this.  One is to never unload a context
+until something new is being run there (handled solely in __proc_startcore()).
+Another way is to always explicitly leave the core, like by abandon_core()ing.
+
+The issue with the former is that you could have contexts sitting around for a
+while, and also would have a bit of extra latency when __proc_free()ing during
+someone *else's* __proc_startcore() (though that could be avoided if it becomes
+a real issue, via some form of reaping).  You'll also probably have excessive
+decrefs (based on the interactions between proc_run() and __startcore()).
+
+The issue with the latter is excessive TLB shootdowns and corner cases.  There
+could be some weird cases (in core_request() for example) where the core you are
+running on has the context loaded for proc A on a mgmt core, but decides to give
+it to proc B.
+
+If no process is running there, current == 0 and boot_cr3 is loaded, meaning no
+process's context is loaded.
+
+2.2 Here's how it is done now:
+---------------------------
+We try to proactively leave, but have the ability to stay in context til
+__proc_startcore() to handle the corner cases (and to maybe cut down the TLB
+flushes later).  To stop proactively leaving, just change abandon_core() to not
+do anything with current/cr3.  You'll see weird things like processes that won't
+die until their old cores are reused.  The reason we proactively leave context
+is to help with sanity for these issues, and also to avoid decref's in
+__startcore().
+
+A couple other details: __startcore() sorts the extra increfs, and
+__proc_startcore() sorts leaving the old context.  Anytime a __startcore kernel
+message is sent, the sender increfs in advance for the current refcnt.  If that
+was in error, __startcore decrefs.  __proc_startcore(), which the last moment
+before we *must* have the cr3/current issues sorted, does the actual check if
+there was an old process there or not, while it handles the lcr3 (if necessary).
+In general, lcr3's ought to have refcnts near them, or else comments explaining
+why not.
+
+So we leave process context when told to do so (__death/abandon_core()) or if
+another process is run there.  The _M code is such that a proc will stay on its
+core until it receives a message, and that message would cleanup/restore a
+generic context (boot_cr3).  A _S could stay on its core until another _S came
+in.  This is much simpler for cases when a timer interrupt goes off to force a
+schedule() decision.  It also avoids a TLB flush in case the scheduler picked
+that same proc to run again.  This could also happen to an _M, if for some
+reason it was given a management core (!!!) or some other event happened that
+caused some management/scheduling function to run on one of it's cores (perhaps
+it asked).
+
+proc_yield() abandons the core / leaves context.
+
+2.3 Other issues:
+---------------------------
+Note that dealing with interrupting processes that are in the kernel is tricky.
+There is no true process context, so we can't leave a core until the kernel is
+in a "safe place", i.e. it's state is bundled enough that it can be recontinued
+later.  Calls of this type are routine kernel messages, executed at a convenient
+time (specifically, before we return to userspace in proc_restartcore().
+
+This same thing applies to __death messages.  Even though a process is dying, it
+doesn't mean we can just drop whatever the kernel was doing on its behalf.  For
+instance, it might be holding a reference that will never get decreffed if its
+stack gets dropped.
+
+3. Leaving the Kernel Stack:
+===========================
+Just because a message comes in saying to kill a process, it does not mean we
+should immediately abandon_core().  The problem is more obvious when there is
+a preempt message, instead of a death message, but either way there is state
+that needs cleaned up (refcnts that need downed, etc).
+
+The solution to this is rather simple: don't abandon right away.  That was
+always somewhat the plan for preemption, but was never done for death.  And
+there are several other cases to worry about too.  To enforce this, we expand
+the old "active messages" into a generic work execution message (a kernel
+message) that can be delayed or shipped to another core.  These types of
+messages will not be executed immediately on the receiving pcore - instead they
+are on the queue for "when there's nothing else to do in the kernel", which is
+checked in smp_idle() and before returning to userspace in proc_restartcore().
+Additionally, these kernel messages can also be queued on an alarm queue,
+delaying their activation as part of a generic kernel alarm facility.
+
+One subtlety is that __proc_startcore() shouldn't check for messages, since it
+is called by __startcore (a message).  Checking there would run the messages out
+of order, which is exactly what we are trying to avoid (total chaos).  No one
+should call __proc_startcore, other than proc_restartcore() or __startcore().
+If we ever have functions that do so, if they are not called from a message,
+they must check for outstanding messages.
+
+This last subtlety is why we needed to change proc_run()'s _S case to use a
+local message instead of calling proc_starcore (and why no one should ever call
+proc_startcore()).  We could unlock, thereby freeing another core to change the
+proc state and send a message to us, then try to proc_startcore, and then
+reading the message before we had installed current or had a userspace TF to
+preempt, and probably a few other things.  Treating _S as a local message is
+cleaner, begs to be merged in the code with _M's code, and uses the messaging
+infrastructure to avoid all the races that it was created to handle.
+
+Incidentally, we don't need to worry about missing messages while trying to pop
+back to userspace from __proc_startcore, since an IPI will be on the way
+(possibly a self-ipi caused by the __kernel_message() handler).  This is also
+why we needed to make process_routine_kmsg() keep interrupts disabled when it
+stops (there's a race between checking the queue and disabling ints).
+
+4. Preemption and Notification Issues:
+===========================
+4.1: Message Ordering and Local Calls:
+---------------------------
+Since we go with the model of cores being told what to do, there are issues
+with messages being received in the wrong order.  That is why we have the
+kernel messages (guaranteed, in-order delivery), with the proc-lock protecting
+the send order.  However, this is not enough for some rare races.
+
+Local calls can also perform the same tasks as messages (calling
+proc_destroy() while a death IPI is on its way). We refer to these calls as
+messing with "local fate" (compared to global state (we're clever).
+Preempting a single vcore doesn't change the process's state).  These calls
+are a little different, because they also involve a check to see if it should
+perform the function or other action (e.g., death just idling and waiting for
+an IPI instead of trying to kill itself), instead of just blindly doing
+something.
+
+4.1.1: Possible Solutions
+----------------
+There are two ways to deal with this.  One (and the better one, I think) is to
+check state, and determine if it should proceed or abort.  This requires that
+all local-fate dependent calls always have enough state, meaning that any
+function that results in sending a directive to a vcore store enough info in
+the proc struct that a local call can determine if it should take action or
+abort.  This might be sufficient.  This works for death already, since you
+aren't supposed to do anything other than die (and restore any invariants
+first, handled in Section 3).  We'll go with this way.
+
+The other way is to send the work (including the checks) in a self-ipi kernel
+message.  This will guarantee that the message is executed after any existing
+messages (making the k_msg queue the authority for what should happen to a
+core).  The check is also performed later (when the k_msg executes).  There
+are a couple issues with this: if we allow the local core to send itself an
+k_msg that could be out of order (meaning it should not be sent, and is only
+sent due to ignorance of its sealed fate), AND if we return the core to the
+idle-core-list once its fate is sealed, we need to detect that the message is
+for the wrong process and that the process is in the wrong state.  To do this,
+we probably need local versioning on the pcore so it can detect that the
+message is late/wrong.  We might get by with just the proc* (though that is
+tricky with death and proc reuse), so long as we don't allow new startcores
+for a proc until AFTER the preemption is completed.
+
+4.2: Preempt-Served Flag
+----------------
+We want to be able to consider a pcore free once its owning proc has dealt
+with removing it (not necessarily taken from the vcoremap, but at least it is
+a done-deal that the core will go away and the messages are sent).  This
+allows a scheduler-like function to easily take a core and then give it to
+someone else, without waiting for each vcore to respond, saying that the pcore
+is free/idle.
+
+Since we want to keep the pcore in the vcoremap, we need another signal to let
+a process know a message is already on its way.  preempt_pending is a signal
+to userspace that the alarm was set, not that an actual message is on its way
+and that a vcore's fate is sealed.  Since we can't use a pcore's presence in
+the vcoremap to determine that the core should be revoked, we have to check
+the "fate sealed"/preempt-served flag. 
+
+It's a bit of a pain to have this flag, just to resolve this race in the
+kernel, though the local call would have to check the vcoremap anyway,
+incurring a cache miss if we go with using the vcoremap to signal the
+impending message.
+
+The preempt_pending flag is actual a timestamp, with the expiration time of
+the core at which the message will be sent.  We could try to use that, but
+since alarms aren't fired at exactly the time they are scheduled, the message
+might not actually be sent yet (though it will, really soon).  Still, we'll
+just go with the preempt-served flag for now.
+
+4.3: Impending Notifications
+----------------
+It's also possible that there is an impending notification.  There's no change
+in fate (though there could be a fate-changing preempt on its way), just the
+user wants a notification handler to run.  We need a flag anyways for this
+(discussed below), so proc_yield() or whatever other local call we have can
+check this flag as well.  
+
+Though for proc_yield(), it doesn't care if a notification is on its way (can
+be dependent on a flag to yield from userspace, based on the nature of the
+yield (which still needs to be sorted)).  If the yield is in response to a
+preempt_pending, it actually should yield and not receive the notification.
+So it should destroy its vcoreid->pcoreid mapping and abandon_core().  When
+that notification hits, it will be for a proc that isn't current, and will be
+ignored (it will get run the next time that vcore fires up, handled below).
+
+There is a slight chance that the same proc will run on that pcore, but with a
+different vcoreid.  In the off chance this happens, the new vcore will get a
+spurious notification.  Userspace needs to be able to handle spurious
+notifications anyways, (there are a couple other cases, and in general it's
+not hard to do), so this is not a problem.  Instead of trying to have the
+kernel ignore the notification, we just send a spurious one.  A crappy
+alternative would be to send the vcoreid with the notification, but that would
+mean we can't send a generic message (broadcast) to a bunch of cores, which
+will probably be a problem later.
+
+Note that this specific case is because the "local work message" gets
+processed out of order with respect to the notification.  And we want this in
+that case, since that proc_yield() is more important than the notification.
+
+4.4: Preemption / Allocation Phases and Alarm Delays
+---------------------------
+A per-vcore preemption phase starts when the kernel marks the core's
+preempt_pending flag/counter and can includes the time when an alarm is
+waiting to go off to reclaim the core.  The phase ends when the vcore's pcore
+is reclaimed, either as a result of the kernel taking control, or because a
+process voluntarily yielded.
+
+Specifically, the preempt_pending variable is actually a timestamp for when
+the core will be revoked (this assumes some form of global time, which we need
+anyways).  If its value is 0, then there is no preempt-pending, it is not in a
+phase, and the vcore can be given out again. 
+
+When a preempt alarm goes off, the alarm only means to check a process for
+expired vcores.  If the vcore has been yielded while the alarm was pending,
+the preempt_pending flag will be reset to 0.  To speed up the search for
+vcores to preempt, there's a circular buffer corelist in the proc struct, with
+vcoreids of potential suspects.  Or at least this will exist at some point.
+Also note that the preemption list isn't bound to a specific alarm: you can
+check the list at any time (not necessarily on a specific alarm), and you can
+have spurious alarms (the list is empty, so it'll be a noop).
+
+Likewise, a global preemption phase is when an entire MCP is getting
+gang_prempted, and the global deadline is set.  A function can quickly check
+to see if the process responded, since the list of vcores with preemptions
+pending will be empty.
+
+It seems obvious, but we do not allow allocation of a vcore during its
+preemption phase.  The main reason is that it can potentially break
+assumptions about the vcore->pcore mapping and can result in multiple
+instances of the same vcore on different pcores.  Imagine a preempt message
+sent to a pcore (after the alarm goes off), meanwhile that vcore/pcore yields
+and the vcore reactivates somewhere else.  There is a potential race on the
+preempt_tf state: the new vcore is reading while the old is writing.  This
+issue is sorted naturally: the vcore entry in the vcoremap isn't cleared until
+the vcore/pcore is actually yielded/taken away, so the code looking for a free
+vcoreid slot will not try to use it.
+
+Note that if we didn't design the alarm system to simply check for
+preemptions (perhaps it has a stored list of vcores to preempt), then we
+couldn't end the preempt-phase until the alarm was sorted.  If that is the
+case, we could easily give out a vcore that had been yielded but was still in
+a preempt-phase.  Stopping an alarm would be tricky too, since there could be
+lots of vcores in different states that need to be sorted by the alarm (so
+ripping it out isn't enough).  Setting a flag might not be enough either.
+Vcore version numbers/history (as well as global proc histories) is a pain I'd
+like to avoid too.  So don't change the alarm / delayed preemption system
+without thinking about this.
+
+Also, allowing a vcore to restart while preemptions are pending also mucks
+with keeping the vcore mapping "old" (while the message is in flight).  A
+pcore will want to use that to determine which vcore is running on it.  It
+would be possible to keep a pcoremap for the reverse mapping out of sync, but
+that seems like a bad idea.  In general, having the pcoremap is a good idea
+(whenever we talk about a vcoremap, we're usually talking about both
+directions: "the vcore->pcore mapping").
+
+4.5: Global Preemption Flags
+---------------------------
+If we are trying to preempt an entire process at the same time, instead of
+playing with the circular buffer of vcores pending preemption, we could have a
+global timer as well.  This avoids some O(n) operations, though it means that
+userspace needs to check two "flags" (expiration dates) when grabbing its
+preempt-critical locks.
+
+4.6: Notifications Mixed with Preemption and Sleeping
+---------------------------
+It is possible that notifications will mix with preemptions or come while a
+process is not running.  Ultimately, the process wants to be notified on a
+given vcore.  Whenever we send an active notification, we set a flag in procdata
+(notif_pending).  If the vcore is offline, we don't bother sending the IPI/notif
+message.  The kernel will make sure it runs the notification handler (as well as
+restoring the preempt_tf) the next time that vcore is restarted.  Note that
+userspace can toggle this, so they can handle the notifications from a different
+core if it likes, or they can independently send a notification.
+
+Note we use notif_pending to detect if an IPI was missed while notifs were
+disabled (this is done in pop_ros_tf() by userspace).  The overall meaning of
+notif_pending is that a vcore wants to be IPI'd.  The IPI could be in-flight, or
+it could be missed.  Since notification IPIs can be spurious, when we have
+potential races, we err on the side of sending.  This happens when pop_ros_tf()
+notifies itself, and when the kernel starts a vcore in it's notif handler if it
+was preempted and notif was pending.  In the latter case, the kernel will put
+the preempt_tf in the notif_tf, so userspace can restart that at its leisure.
+
+If a vcore has a preempt_pending, we will still send the active notification
+(IPI).  The core ought to get a notification for the preemption anyway, so we
+need to be able to send one.  Additionally, once the vcore is handling that
+preemption notification, it will have notifs disabled, which will prevent us
+from sending any extra notifications anyways.
+ 
+4.7: Notifs While a Preempt Message is Served
+---------------------------
+It is possible to have the kernel handling a notification k_msg and to have a
+preempt k_msg in the queue (preempt-served flag is set).  Ultimately, what we
+want is for the core to be preempted and the notification handler to run on
+the next execution.  Both messages are in the k_msg queue for "a convenient
+time to leave the kernel" (I'll have a better name for that later).  What we
+do is execute the notification handler and jump to userspace.  Since there is
+still an k_msg in the queue (and we self_ipi'd ourselves, it's part of how
+k_msgs work), the IPI will fire and push us right back into the kernel to
+execute the preemption, and the notif handler's context will be saved in the
+preempt_tf (ready to go when the vcore gets started again).
+
+We could try to just leave the notif_pending flag set and ignore the message,
+but that would involve inspecting the queue for the preempt k_msg.
+Additionally, a preempt k_msg can arrive anyway.  Finally, it's possible to have
+another message in the queue between the notif and the preempt, and it gets ugly
+quickly trying to determine what to do.
+
+4.8: When a Pcore is "Free"
+---------------------------
+There are a couple ways to handle pcores.  One approach would be to not
+consider them free and able to be given to another process until the old
+process is completely removed (abandon_core()).  Another approach is to free
+the core once its fate is sealed (which we do).  This probably gives more
+flexibility in schedule()-like functions (no need to wait to give the core
+out), quicker dispatch latencies, less contention on shared structs (like the
+idle-core-map), etc.
+
+Also, we don't remove the pcore from the vcoremap, even if it is being
+allocated to another core (the same pcore can exist in two vcoremaps, contrary
+to older statements).  Taking the pcore from the vcoremap would mean some
+non-fate related local calls (sys_get_vcoreid()) will fail, since the vcoreid
+is gone!  Additionally, we don't need a vcoreid in the k_msg (we would have if
+we could not use the vcore/pcoremappings).  There should not be any issues
+with the new process sending messages to the pcore before the core is sorted,
+since k_msgs are delivered in order.
+
+Another tricky part is the seq_ctr used to signal userspace of changes to the
+coremap or num_vcores (coremap_seqctr).  While we may not even need this in the
+long run, it still seems like it could be useful.  The trickiness comes from
+when we update the seq_ctr when we are unmapping vcores on the receive side of a
+message (like __death or __preempt).  We'd rather not have each pcore contend on
+the seq_ctr cache line (let alone any locking) while they perform a somewhat
+data-parallel task.  So we continue to have the sending core handle the seq_ctr
+upping and downing.  This works, since the "unlocking" happens after messages
+are sent, which means the receiving core is no longer in userspace (if there is
+a delay, it is because the remote core is in the kernel, possibly with
+interrupts disabled).  Because of this, userspace will be unable to read the new
+value of the seq_ctr before the IPI hits and does the unmapping that the seq_ctr
+protects/advertises.  This is most likely true.  It wouldn't be if the "last IPI
+was sent" flag clears before the IPI actually hit the other core.
+
+4.9: Future Broadcast/Messaging Needs
+---------------------------
+Currently, messaging is serialized.  Broadcast IPIs exist, but the kernel
+message system is based on adding an k_msg to a list in a pcore's
+per_cpu_info.  Further the sending of these messages is in a loop.  In the
+future, we would like to have broadcast messaging of some sort (literally a
+broadcast, like the IPIs, and if not that, then a communication tree of
+sorts).  
+
+Given those desires, we want to make sure that no message we send needs
+details specific to a pcore (such as the vcoreid running on it, a history
+number, or anything like that).  Thus no k_msg related to process management
+should have anything that cannot apply to the entire process.  At this point,
+most just have a struct proc *.  A pcore ought to be able to figure out what
+is happening based on the pcoremap, information in the struct proc, and in the
+preempt struct in procdata.
+
+4.10: Other Things We Thought of but Don't Like
+---------------------------
+All local fate-related work is sent as a self k_msg, to enforce ordering.
+It doesn't capture the difference between a local call and a remote k_msg.
+The k_msg has already considered state and made its decision.  The local call
+is an attempt.  It is also unnecessary, if we put in enough information to
+make a decision in the proc struct.  Finally, it caused a few other problems
+(like needing to detect arbitrary stale messages).
+
+Overall message history: doesn't work well when you do per-core stuff, since
+it will invalidate other messages for the process.  We then though of a pcore
+history counter to detect stale messages.  Don't like that either.  We'd have
+to send the history in the message, since it's a per-message, per-core
+expiration.  There might be other ways around this, but this doesn't seem
+necessary.
+
+Alarms have pointers to a list of which cores should be preempted when that
+specific alarm goes off (saved with the alarm).  Ugh.  It gets ugly with
+multiple outstanding preemptions and cores getting yielded while the alarms
+sleep (and possibly could get reallocated, though we'd make a rule to prevent
+that).  Like with notifications, being able to handle spurious alarms and
+thinking of an alarm as just a prod to check somewhere is much more flexible
+and simple.  It is similar to generic messages that have the actual important
+information stored somewhere else (as with allowing broadcasts, with different
+receivers performing slightly different operations).
+
+Synchrony for messages (wanting a response to a preempt k_msg, for example)
+sucks.  Just encode the state of impending fate in the proc struct, where it
+belongs.  Additionally, we don't want to hold the proc lock even longer than
+we do now (which is probably too long as it is).  Finally, it breaks a golden
+rule: never wait while holding a lock: you will deadlock the system (e.g. if
+the receiver is already in the kernel spinning on the lock).  We'd have to
+send messages, unlock (which might cause a message to hit the calling pcore,
+as in the case of locally called proc_destroy()), and in the meantime some
+useful invariant might be broken.
+
+We also considered using the transition stack as a signal that a process is in
+a notification handler.  The kernel can inspect the stack pointer to determine
+this.  It's possible, but unnecessary.
+
+5. current_tf
+===========================
+current_tf is a per-core macro that returns a struct trapframe * that points
+back on the kernel stack to the user context that was running on the given core
+when an interrupt or trap happened.  Saving the reference to the TF helps
+simplify code that needs to do something with the TF (like save it and pop
+another TF).  This way, we don't need to pass the context all over the place,
+especially through code that might not care.
+
+current_tf should go along with current.  It's the current_tf of the current
+process.  Withouth 'current', it has no meaning.
+
+It does not point to kernel trapframes, which is important when we receive an
+interrupt in the kernel.  At one point, we were (hypothetically) clobbering the
+reference to the user trapframe, and were unable to recover.  We can get away
+with this because the kernel always returns to its previous context from a
+nested handler (via iret on x86).  
+
+In the future, we may need to save kernel contexts and may not always return via
+iret.  At which point, if the code path is deep enough that we don't want to
+carry the TF pointer, we may revisit this.  Until then, current_tf is just for
+userspace contexts, and is simply stored in per_cpu_info.
+
+6. Locking!
+===========================
+6.1: proc_lock
+---------------------------
+Currently, all locking is done on the proc_lock.  It's main goal is to protect
+the vcore mapping (vcore->pcore and vice versa).  As of Apr 2010, it's also used
+to protect changes to the address space and the refcnt.  Eventually the refcnt
+will be handled with atomics, and the address space will have it's own MM lock.  
+
+We grab the proc_lock all over the place, but we try to avoid it whereever
+possible - especially in kernel messages or other places that will be executed
+in parallel.  One place we do grab it but would like to not is in proc_yield().  
+We don't always need to grab the proc lock.  Here are some examples:
+
+6.1.1: Lockless Notifications:
+-------------
+We don't lock when sending a notification.  We want the proc_lock to not be an
+irqsave lock (discussed below).  Since we might want to send a notification from
+interrupt context, we can't grab the proc_lock if it's a regular lock.  
+
+This is okay, since the proc_lock is only protecting the vcoremapping.  We could
+accidentally send the notification to the wrong pcore.  The __notif handler
+checks to make sure it is the right process, and all _M processes should be able
+to handle spurious notifications.  This assumes they are still _M.
+
+If we send it to the wrong pcore, there is a danger of losing the notif, since
+it didn't go to the correct vcore.  That would happen anyway, (the vcore is
+unmapped, or in the process of mapping).  The notif_pending flag will be caught
+when the vcore is started up next time (and that flag was set before reading the
+vcoremap).
+
+6.1.2: Local get_vcoreid():
+-------------
+It's not necessary to lock while checking the vcoremap if you are checking for
+the core you are running on (e.g. pcoreid == core_id()).  This is because all
+unmappings of a vcore are done on the receive side of a routine kmsg, and that
+code cannot run concurrently with the code you are running.  
+
+6.2: irqsave
+---------------------------
+The proc_lock used to be an irqsave lock (meaning it disables interrupts and can
+be grabbed from interrupt context).  We made it a regular lock for a couple
+reasons.  The immediate one was it was causing deadlocks due to some other
+ghetto things (blocking on the frontend server, for instance).  More generally,
+we don't want to disable interrupts for long periods of time, so it was
+something worth doing anyway.  
+
+This means that we cannot grab the proc_lock from interrupt context.  This
+includes having schedule called from an interrupt handler (like the
+timer_interrupt() handler), since it will call proc_run.  Right now, we actually
+do this, which we shouldn't, and that will eventually get fixed.  The right
+answer is that the actual work of running the scheduler should be a routine
+kmsg, similar to how Linux sets a bit in the kernel that it checks on the way
+out to see if it should run the scheduler or not.
+
+7. TLB Coherency
+===========================
+When changing or removing memory mappings, we need to do some form of a TLB
+shootdown.  Normally, this will require sending an IPI (immediate kmsg) to
+every vcore of a process to unmap the affected page.  Before allocating that
+page back out, we need to make sure that every TLB has been flushed.  
+
+One reason to use a kmsg over a simple handler is that we often want to pass a
+virtual address to flush for those architectures (like x86) that can
+invalidate a specific page.  Ideally, we'd use a broadcast kmsg (doesn't exist
+yet), though we already have simple broadcast IPIs.
+
+7.1 Initial Stuff
+---------------------------
+One big issue is whether or not to wait for a response from the other vcores
+that they have unmapped.  There are two concerns: 1) Page reuse and 2) User
+semantics.  We cannot give out the physical page while it may still be in a
+TLB (even to the same process.  Ask us about the pthread_test bug).
+
+The second case is a little more detailed.  The application may not like it if
+it thinks a page is unmapped or protected, and it does not generate a fault.
+I am less concerned about this, especially since we know that even if we don't
+wait to hear from every vcore, we know that the message was delivered and the
+IPI sent.  Any cores that are in userspace will have trapped and eventually
+handle the shootdown before having a chance to execute other user code.  The
+delays in the shootdown response are due to being in the kernel with
+interrupts disabled (it was an IMMEDIATE kmsg).
+
+7.2 RCU
+---------------------------
+One approach is similar to RCU.  Unmap the page, but don't put it on the free
+list.  Instead, don't reallocate it until we are sure every core (possibly
+just affected cores) had a chance to run its kmsg handlers.  This time is
+similar to the RCU grace periods.  Once the period is over, we can then truly
+free the page.
+
+This would require some sort of RCU-like mechanism and probably a per-core
+variable that has the timestamp of the last quiescent period.  Code caring
+about when this page (or pages) can be freed would have to check on all of the
+cores (probably in a bitmask for what needs to be freed).  It would make sense
+to amortize this over several RCU-like operations.
+
+7.3 Checklist
+---------------------------
+It might not suck that much to wait for a response if you already sent an IPI,
+though it incurs some more cache misses.  If you wanted to ensure all vcores
+ran the shootdown handler, you'd have them all toggle their bit in a checklist
+(unused for a while, check smp.c).  The only one who waits would be the
+caller, but there still are a bunch of cache misses in the handlers.  Maybe
+this isn't that big of a deal, and the RCU thing is an unnecessary
+optimization.
+
+7.4 Just Wait til a Context Switch
+---------------------------
+Another option is to not bother freeing the page until the entire process is
+descheduled.  This could be a very long time, and also will mess with
+userspace's semantics.  They would be running user code that could still
+access the old page, so in essence this is a lazy munmap/mprotect.  The
+process basically has the page in pergatory: it can't be reallocated, and it
+might be accessible, but can't be guaranteed to work.
+
+The main benefit of this is that you don't need to send the TLB shootdown IPI
+at all - so you don't interfere with the app.  Though in return, they have
+possibly weird semantics.  One aspect of these weird semantics is that the
+same virtual address could map to two different pages - that seems like a
+disaster waiting to happen.  We could also block that range of the virtual
+address space from being reallocated, but that gets even more tricky.
+
+One issue with just waiting and RCU is memory pressure.  If we actually need
+the page, we will need to enforce an unmapping, which sucks a little.
+
+7.5 Bulk vs Single
+---------------------------
+If there are a lot of pages being shot down, it'd be best to amortize the cost
+of the kernel messages, as well as the invlpg calls (single page shootdowns).
+One option would be for the kmsg to take a range, and not just a single
+address.  This would help with bulk munmap/mprotects.  Based on the number of
+these, perhaps a raw tlbflush (the entire TLB) would be worth while, instead
+of n single shots.  Odds are, that number is arch and possibly workload
+specific.
+
+For now, the plan will be to send a range and have them individually shot
+down.
+
+7.6 Don't do it
+---------------------------
+Either way, munmap/mprotect sucks in an MCP.  I recommend not doing it, and
+doing the appropriate mmap/munmap/mprotects in _S mode.  Unfortunately, even
+our crap pthread library munmaps on demand as threads are created and
+destroyed.  The vcore code probably does in the bowels of glibc's TLS code
+too, though at least that isn't on every user context switch.
+
+7.7 Local memory
+---------------------------
+Private local memory would help with this too.  If each vcore has its own
+range, we won't need to send TLB shootdowns for those areas, and we won't have
+to worry about weird application semantics.  The downside is we would need to
+do these mmaps in certain ranges in advance, and might not easily be able to
+do them remotely.  More on this when we actually design and build it.
+
+7.8 Future Hardware Support
+---------------------------
+It would be cool and interesting if we had the ability to remotely shootdown
+TLBs.  For instance, all cores with cr3 == X, shootdown range Y..Z.  It's
+basically what we'll do with the kernel message and the vcoremap, but with
+magic hardware.
+
+7.9 Current Status
+---------------------------
+For now, we just send a kernel message to all vcores to do a full TLB flush,
+and not to worry about checklists, waiting, or anything.  This is due to being
+short on time and not wanting to sort out the issue with ranges.  The way
+it'll get changed to is to send the kmsg with the range to the appropriate
+cores, and then maybe put the page on the end of the freelist (instead of the
+head).  More to come.
+
+8. TBD
+===========================

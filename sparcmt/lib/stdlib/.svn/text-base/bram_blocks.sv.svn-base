@@ -1,0 +1,50 @@
+//------------------------------------------------------------------------------   
+// File:        bram_blocks.sv
+// Author:      Zhangxi Tan
+// Description: BRAM  using the memory compiler
+//------------------------------------------------------------------------------  
+`timescale 1ns / 1ps
+
+`ifndef SYNP94
+import libstd::*;
+`else
+`include "libstd.sv"
+`endif
+
+
+//simple dual-port ram (one write, one read)
+module bram_sdp #(parameter int DWIDTH = 32, parameter int DEPTH = 1024, parameter bit DOREG=1)(input bit rclk,
+                                             input  bit wclk,
+                                             input  bit rst,
+                                             input  bit [log2x(DEPTH)-1:0]      waddr, raddr,
+                                             input  bit [DWIDTH-1:0] din,
+                                             input  bit we,
+                                             output bit [DWIDTH-1:0] dout);
+                                             
+        (* syn_ramstyle="block_ram"*) bit [DWIDTH-1:0]       mem[0:DEPTH-1];
+        bit [DWIDTH-1:0]                rdata, r_dout;
+        bit [log2x(DEPTH)-1:0]          raddr_reg;
+                                             
+        always_ff @(posedge wclk) begin
+        //write port
+                if (we)
+                        mem[waddr] <= din;
+        end          
+
+        //read port
+        assign rdata = mem[raddr_reg];
+        
+        assign dout = (DOREG) ? r_dout : rdata;
+
+        always_ff @(posedge rclk) begin                                     
+                raddr_reg <= raddr;
+                
+                //output register
+                if (rst)
+                       r_dout <= '0;
+                else
+                       r_dout <= rdata;
+        end  
+                                                                                          
+endmodule
+

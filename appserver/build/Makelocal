@@ -1,0 +1,10 @@
+INSTDIR=/stow/repository/ramp-sim
+
+LOCAL_TARGETS := proxykernel-sparc common-sparc
+
+SPARC_APP_SETUID := sudo chown root:root bin/sparc_app; \
+                    sudo chmod u+s bin/sparc_app; \
+                    sudo chmod g+rw bin/sparc_app
+SPARC_APP_DEBUG_SETUID := sudo chown root:root bin/sparc_app_debug; \
+                          sudo chmod u+s bin/sparc_app_debug; \
+                          sudo chmod g+rw bin/sparc_app_debug

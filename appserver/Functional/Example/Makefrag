@@ -1,0 +1,7 @@
+functional-example: $(BIN_DIR)/cgold-example
+
+$(BIN_DIR)/cgold-example: $(FUNCTIONAL_SRC_DIR)/Example/main.cpp $(LIB_DIR)/libcgold.a $(LIB_DIR)/libcommon.a
+	$(CXX) $(CXXFLAGS) -o $@ $< $(LDFLAGS) -lcgold -lcommon
+
+functional-example-clean:
+	rm -f $(BIN_DIR)/cgold-example

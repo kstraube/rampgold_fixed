@@ -1,0 +1,282 @@
+//------------------------------------------------------------------------------ 
+// File:        tm_cpu_nipc.sv
+// Author:      Zhangxi Tan
+// Description: A simple CPU "timing" model with a synchronization barrier of n
+//              clock cycles.  
+//------------------------------------------------------------------------------  
+
+
+`timescale 1ns / 1ps
+
+
+`ifndef SYNP94
+import libconf::*;
+import libiu::*;
+import libio::*;
+import libstd::*;
+import libdebug::*;
+import libtm::*;
+import libtm_cache::*;
+`else
+`include "../../cpu/libiu.sv"
+`include "../../io/libio.sv"
+`include "../libtm.sv"
+`include "../cpu/libtm_cache.sv"
+`endif
+
+//configuration register address map
+//byte 0  : threads_total
+//byte 1  : threads_active
+//byte 2-3: ldst_stall_count
+//------------------------------
+//byte 4-7: sync_count
+//------------------------------
+//byte 8  : thread_running_state
+
+//thread ID = addr[IO_AWIDTH-5 -: NTHREADIDMSB+1];
+
+module tm_cpu_nipc #(parameter bit [3:0] addrmask = 4'b0, parameter int AMAT = 2, parameter int SYNC_CYCLES = 60, parameter int MAXSTALLMSB = 8, parameter int MAXSYNCMSB = 19, parameter bit THREADENABLE = 1'b0) (input iu_clk_type gclk, input bit rst, 
+                   dma_tm_ctrl_type              dma2tm,
+                   //RAMP Gold timing interface
+                   input  tm_unit_ctrl_type      quanta_ctrl,
+                   output bit                    quanta_done,
+                   //cpu functional pipeline interface
+                   input  io_bus_in_type         io_in,          //io bus interface for tm configuration
+                   input  tm_cpu_ctrl_token_type cpu2tm,
+                   output tm2cpu_token_type      tm2cpu,
+                   output bit                    running);       //pipeline state (for host performance counter)
+                   
+tm2cpu_token_type  v_tm2cpu, r_tm2cpu, v_tm2cpu_out;   //output register
+
+struct {
+  bit [MAXSTALLMSB:0]    ldst_stall_count;  
+  bit [MAXSYNCMSB:0]     sync_count; 
+  bit [NTHREADIDMSB:0]   threads_total;
+  bit [NTHREADIDMSB:0]   threads_active;    
+}v_tm_config_reg, tm_config_reg;            //timing model configuration registers
+
+struct{
+  bit                    run;               //the old run_reg
+  bit                    tm_config_we;
+  bit [1:0]              tm_config_addr;   
+  bit [NTHREADIDMSB:0]   tm_config_tid;      
+  bit                    round_robin;       //round robin mode at the beginning of each simulation quanta
+  bit                    sim_quanta;
+  bit                    tm_token;          //token in timing model
+  bit [NTHREADIDMSB:0]   nthreads_done;  
+}v_tm_reg, tm_reg;
+//perthread state
+(* syn_ramstyle = "select_ram" *) bit thread_running_ram[0:NTHREAD-1];      //0-run, 1-stop
+bit thread_running_din, thread_running_dout;
+bit [NTHREADIDMSB:0]    thread_running_waddr, thread_running_raddr;
+bit thread_running_we;          //this will be used to kill one thread during experiements
+
+(* syn_ramstyle = "select_ram" *) bit[MAXSYNCMSB:0] thread_sync_ram[0:NTHREAD-1];      
+bit thread_sync_we;          
+bit [MAXSYNCMSB:0] thread_sync_din, thread_sync_dout;
+bit [NTHREADIDMSB:0]    thread_sync_addr;
+
+(* syn_ramstyle = "select_ram" *) bit[MAXSTALLMSB:0] mem_stall_count_ram[0:NTHREAD-1];      
+bit mem_stall_count_we, is_ldst;
+bit[MAXSTALLMSB:0] mem_stall_count_din, mem_stall_count_dout;
+bit [NTHREADIDMSB:0]    mem_stall_count_addr;
+
+(* syn_ramstyle = "select_ram" *) bit stall_ram[0:NTHREAD-1];      
+bit [NTHREADIDMSB:0]  stall_raddr, stall_waddr;
+bit stall_we, stall_din, stall_dout;
+
+bit [NTHREADIDMSB:0] replay_queue_head, next_thread;
+bit replay_queue_empty, replay_queue_deq, replay_queue_enq;
+
+bit[4:0] class_inst_open;
+
+always_comb begin  
+  v_tm_config_reg = tm_config_reg;
+  v_tm_reg = tm_reg;
+  v_tm2cpu_out = r_tm2cpu;
+  
+  if (quanta_ctrl == tm_START)
+    v_tm_reg.tm_token = '1;
+   
+  unique case (dma2tm.tm_dbg_ctrl)
+  tm_dbg_start: v_tm_reg.run = '1;
+  tm_dbg_stop : v_tm_reg.run = '0;
+  default     : ;    //
+  endcase
+  
+  
+  //tm configuration
+  v_tm_reg.tm_config_we = (io_in.addr[IO_AWIDTH-1 : IO_AWIDTH-4] == addrmask) ? '1 : '0;
+  v_tm_reg.tm_config_addr = (io_in.addr[2 +: 2]);   //word address
+  v_tm_reg.tm_config_tid =  io_in.addr[IO_AWIDTH-5 -: NTHREADIDMSB+1];
+
+  thread_running_we = '0;
+  thread_running_din = '1;
+  
+  if (io_in.en & io_in.rw & tm_reg.tm_config_we) begin
+    unique case (tm_reg.tm_config_addr)
+    0:  begin 
+        v_tm_config_reg.threads_total  = io_in.wdata[0 +: NTHREADIDMSB+1]; 
+        v_tm_config_reg.threads_active = io_in.wdata[8 +: NTHREADIDMSB+1];
+        v_tm_config_reg.ldst_stall_count = io_in.wdata[16 +: MAXSTALLMSB+1];
+        end
+    1: v_tm_config_reg.sync_count = io_in.wdata[0 +: MAXSYNCMSB+1];
+    default: begin      //2+
+              thread_running_we = '1;
+              thread_running_din = io_in.wdata[0];
+             end
+    endcase
+  end
+  thread_running_waddr = tm_reg.tm_config_tid;
+  
+  replay_queue_deq = 0;  
+  replay_queue_enq = (tm_reg.run & cpu2tm.valid & (thread_sync_dout != 0));  
+
+  v_tm2cpu.running = tm_reg.run;
+  
+  next_thread = r_tm2cpu.tid+1;
+
+  //main fsm  
+  quanta_done = '0;
+  v_tm2cpu.tid = next_thread;   //default: cycle through all threads
+
+  
+  if (!tm_reg.sim_quanta) begin    //wait for tm token to start
+    v_tm2cpu.valid = '0;
+    v_tm2cpu.run = '0;            
+    
+    if (tm_reg.tm_token) begin
+      v_tm_reg.sim_quanta = '1;  
+      v_tm_reg.tm_token = '0;      //clear all tokens and start simulation
+
+      v_tm2cpu.tid = '0;
+      v_tm2cpu.valid = 1;
+      v_tm2cpu.run = 1;
+      v_tm_reg.round_robin = '1;      
+      v_tm_reg.nthreads_done = '0;
+    end
+  end
+  else begin        //simulating
+    if (tm_reg.run) begin
+      if (tm_reg.round_robin & (r_tm2cpu.tid == tm_config_reg.threads_active))
+        v_tm_reg.round_robin = '0;     //turn off round robin after we issued all threads
+      
+     v_tm2cpu.tid = (v_tm_reg.round_robin) ? next_thread : replay_queue_head;       
+     v_tm2cpu.valid = (v_tm_reg.round_robin | ~replay_queue_empty);
+     v_tm2cpu.run = v_tm2cpu.valid & ~stall_dout;
+     replay_queue_deq = ~replay_queue_empty & ~v_tm_reg.round_robin;
+
+    end
+    else begin      //simulation stopped  
+      v_tm2cpu.valid = 0;    
+      v_tm2cpu.run  = 0;
+      
+      if (v_tm_reg.run) begin
+        v_tm_reg.sim_quanta = '0;
+      end
+    end
+    
+    if ((thread_sync_dout == 0) & cpu2tm.valid) begin
+      v_tm_reg.nthreads_done = tm_reg.nthreads_done + 1;
+      if (tm_reg.nthreads_done == tm_config_reg.threads_active) begin   //all threads done
+//        tick = '1;
+        quanta_done = '1;
+        
+        if (tm_reg.tm_token) begin   //ready to start next quanta
+          v_tm_reg.tm_token = '0;
+
+          v_tm2cpu.tid = '0;
+          v_tm2cpu.valid = 1;
+          v_tm2cpu.run = 1;
+          v_tm_reg.round_robin = '1;      
+          v_tm_reg.nthreads_done = '0;          
+        end
+        else
+          v_tm_reg.sim_quanta = '0;  //jump to wait token
+      end
+    end
+  end
+  v_tm_reg.run &= (thread_running_dout | ~THREADENABLE);
+  
+  //ram signals
+  thread_sync_din   = (v_tm_reg.round_robin) ? tm_config_reg.sync_count : thread_sync_dout - 1;
+  thread_sync_we    = cpu2tm.retired;  
+  thread_sync_addr = cpu2tm.tid;
+
+  classify_inst(cpu2tm.inst, is_ldst, class_inst_open[0], class_inst_open[1], class_inst_open[2], class_inst_open[3], class_inst_open[4]); 
+  mem_stall_count_din = mem_stall_count_dout - 1;
+  mem_stall_count_we = cpu2tm.valid & ((cpu2tm.retired & is_ldst) | ~cpu2tm.run);
+  mem_stall_count_addr = cpu2tm.tid;
+
+  stall_we    = '0;
+  stall_din   = '0;
+  stall_waddr = cpu2tm.tid;
+  stall_raddr = v_tm2cpu.tid;
+  
+  if (mem_stall_count_dout == 0) begin
+     stall_we = '1;
+    if (!cpu2tm.run) begin
+      mem_stall_count_we = '0;
+      stall_din = '0;
+    end
+    else if (is_ldst) begin
+      mem_stall_count_din = tm_config_reg.ldst_stall_count;  //load count    
+      stall_din = '1;
+    end
+  end
+
+  thread_running_raddr = v_tm2cpu.tid;
+
+  //output 
+  running = tm_reg.run;    
+  
+  if (rst) begin 
+    v_tm_config_reg.ldst_stall_count = AMAT;
+    v_tm_config_reg.sync_count     = SYNC_CYCLES;
+    v_tm_config_reg.threads_total  = NTHREAD-1;
+    v_tm_config_reg.threads_active = NTHREAD-1;
+    
+    v_tm_reg.run           = '0;
+    v_tm_reg.tm_token      = '1;         //unit is ready to start after reset    
+    v_tm_reg.nthreads_done = '0;
+    v_tm_reg.round_robin   = '1;
+    v_tm_reg.sim_quanta = '1;    
+    
+    mem_stall_count_we  = '1;
+    mem_stall_count_din = '0;
+    
+    stall_we = '1;
+    stall_din = '0;
+    
+    thread_running_we    = '1;
+//    thread_running_din   = '1;        //default value will work during reset, 1-mux is saved
+    thread_running_waddr = io_in.tid;
+  end
+  
+end
+
+  
+replay_fifo replay_queue (.gclk,.rst,.enq(replay_queue_enq),.enq_data(cpu2tm.tid),.deq(replay_queue_deq),.head(replay_queue_head),.empty(replay_queue_empty),.full());
+
+
+always_ff @(posedge gclk.clk) begin
+  r_tm2cpu <= v_tm2cpu;
+  tm2cpu <= r_tm2cpu;
+  tm_config_reg <= v_tm_config_reg;
+  tm_reg    <= v_tm_reg;  
+end
+
+//memories
+assign thread_sync_dout = thread_sync_ram[thread_sync_addr];
+assign mem_stall_count_dout = mem_stall_count_ram[mem_stall_count_addr];
+assign stall_dout = stall_ram[stall_raddr]; 
+assign thread_running_dout = thread_running_ram[thread_running_raddr];
+
+always_ff @(posedge gclk.clk) begin
+  if (thread_sync_we) thread_sync_ram[thread_sync_addr] <= thread_sync_din;
+  if (mem_stall_count_we) mem_stall_count_ram[mem_stall_count_addr] <= mem_stall_count_din;
+  if (stall_we) stall_ram[stall_waddr] <= stall_din;
+  if (thread_running_we) thread_running_ram[thread_running_waddr] <= thread_running_din;
+end  
+
+endmodule

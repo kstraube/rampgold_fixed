@@ -1,0 +1,5 @@
+htif_sparchw_dma.eth_if = eth0
+htif_sparchw_dma.hwaddr = 0x000000000001
+
+htif_sparcvs_dma.hostname = localhost
+htif_sparcvs_dma.port = 5671
